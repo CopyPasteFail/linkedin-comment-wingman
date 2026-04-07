@@ -1,0 +1,43 @@
+{
+  "manifest_version": 3,
+  "name": "LinkedIn Comment Wingman",
+  "version": "0.1.0",
+  "description": "Generate high-quality comments using your ChatGPT session.",
+  "permissions": [
+    "windows",
+    "storage",
+    "scripting",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "https://*.linkedin.com/*",
+    "https://chatgpt.com/*"
+  ],
+  "background": {
+    "service_worker": "src/background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.linkedin.com/*"
+      ],
+      "js": [
+        "src/linkedin.js"
+      ],
+      "css": [
+        "src/linkedin.css"
+      ]
+    },
+    {
+      "matches": [
+        "https://chatgpt.com/*"
+      ],
+      "js": [
+        "src/chatgpt.js"
+      ]
+    }
+  ],
+  "action": {
+    "default_title": "LinkedIn Comment Wingman"
+  }
+}
