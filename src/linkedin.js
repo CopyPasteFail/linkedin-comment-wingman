@@ -270,15 +270,22 @@ function renderResultsInContainer(postContainer, text) {
     // 0. Pre-process: Filter out prompt noise/instructions
     let cleanText = text;
     const promptKeywords = [
-        "Write short LinkedIn comments", 
-        "HERE IS THE LINKEDIN POST", 
-        "Output count:", 
-        "Writing rules:",
-        "Return exactly 8 options",
-        "in this format",
         "# Role",
         "# Core objective",
-        "Quality standard"
+        "# Tone",
+        "# Core comment strategy",
+        "# Specificity rule",
+        "# Builder / operator credibility",
+        "# Ecosystem lens",
+        "# Emotional matching rule",
+        "# Conversational naturalness",
+        "# Humor rule",
+        "# Style variation rule",
+        "# Output count",
+        "# Writing rules",
+        "# Output format",
+        "# Quality standard",
+        "HERE IS THE LINKEDIN POST"
     ];
     
     // If we find prompt keywords, try to find the actual start of options
