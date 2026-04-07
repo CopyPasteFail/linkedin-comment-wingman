@@ -1,5 +1,5 @@
 // Set to true to use a simplified prompt for rapid extraction testing
-const TEST_MODE = true;
+const TEST_MODE = false;
 
 const PROMPT_INSTRUCTIONS = TEST_MODE ? `
 Return exactly 8 options in this format:

@@ -348,10 +348,16 @@ function renderResultsInContainer(postContainer, text) {
                                        cleaned.length < 5 || 
                                        (cleaned.includes("Return exactly") && cleaned.includes("options"));
             
-            if (!looksLikeInstruction) {
+            if (!looksLikeInstruction && cleaned.length > 5) {
                 options.push(cleaned);
             }
         });
+
+        // 2.5 If still nothing, and the text looks like a valid comment but missing markers
+        if (options.length === 0 && cleanText.length > 20 && !cleanText.includes("Error:")) {
+             console.log("Wingman: No options found via split, treating entire cleanText as 1 option.");
+             options.push(cleanText.trim());
+        }
     }
 
     // 3. Last resort fallback

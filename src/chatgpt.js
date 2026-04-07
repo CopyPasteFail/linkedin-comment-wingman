@@ -166,10 +166,10 @@ async function automateChat(prompt) {
         }
     }
 
-    console.log("Wingman ChatGPT: Generation complete. Extracting result...");
+    // Give it a moment to finalize rendering (ChatGPT UI sometimes updates status markers for 1-2s)
+    await sleep(3500);
 
-    // Give it a moment to finalize rendering
-    await sleep(2000);
+    console.log("Wingman ChatGPT: Generation complete. Extracting result...");
 
     // 6. Extract the generated text using Universal + Marker-based methodology
     const assistantSelectors = [
@@ -201,8 +201,27 @@ async function automateChat(prompt) {
             const candidates = turn.matches?.(selector) ? [turn, ...contentCandidates] : [...contentCandidates];
             
             for (const el of candidates) {
-                const msgText = (el.innerText || el.textContent || '').trim();
+                let msgText = (el.innerText || el.textContent || '').trim();
                 
+                // --- STATUS MARKER FILTERING ---
+                // Remove transient ChatGPT status UI text that might have been scraped
+                const statusMarkers = [
+                    "Pending", 
+                    "Searching", 
+                    "Analyzing", 
+                    "Finished searching", 
+                    "Memory updated", 
+                    "Thought for",
+                    "seconds"
+                ];
+                
+                statusMarkers.forEach(m => {
+                    // Case-insensitive removal of common status words if they appear at the very start/end
+                    const regStart = new RegExp(`^${m}[\\s\\n\\r.:]*`, 'i');
+                    const regEnd = new RegExp(`[\\s\\n\\r.:]*${m}$`, 'i');
+                    msgText = msgText.replace(regStart, '').replace(regEnd, '').trim();
+                });
+
                 // --- SUCCESS MARKERS ---
                 // If it contains multiple options, it's a high-confidence success
                 const hasOption1 = /option 1/i.test(msgText);
