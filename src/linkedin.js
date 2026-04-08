@@ -7,6 +7,22 @@
 
     let postIdCounter = 0;
     const processedButtons = new WeakSet();
+    const runtimeGuards = globalThis.WingmanRuntimeGuards || {
+        createRuntimeUnavailableError: () => new Error("Wingman extension runtime is unavailable."),
+        isExtensionContextInvalidated: (error) => Boolean(error?.message) && /extension context invalidated/i.test(error.message),
+        safeSendRuntimeMessage: (runtime, message, callback) => {
+            if (!runtime?.sendMessage) {
+                return { ok: false, error: new Error("Wingman extension runtime is unavailable.") };
+            }
+
+            try {
+                runtime.sendMessage(message, callback);
+                return { ok: true };
+            } catch (error) {
+                return { ok: false, error };
+            }
+        }
+    };
     const wingmanUiSymbols = globalThis.WingmanUiSymbols || {
         WINGMAN_IDLE_SYMBOL: "✨",
         WINGMAN_LOADING_SYMBOL: "⏳"
@@ -30,8 +46,24 @@
     };
 
     let pollingInterval = null;
+    let extensionReloadNoticeShown = false;
 
     console.log("Wingman Extension: Content script loaded and running!");
+
+    function handleRuntimeMessagingFailure(error, actionDescription) {
+    console.error(`Wingman: ${actionDescription} failed:`, error?.message || error);
+    clearActiveResults();
+
+    if (runtimeGuards.isExtensionContextInvalidated(error)) {
+        if (!extensionReloadNoticeShown) {
+            extensionReloadNoticeShown = true;
+            alert("Wingman was reloaded or updated. Refresh this LinkedIn tab and try again.");
+        }
+        return;
+    }
+
+    alert(`Wingman couldn't ${actionDescription}: ${error?.message || "Unknown error"}`);
+    }
 
     function injectWingmanButtons() {
     const buttons = document.querySelectorAll("button");
@@ -190,15 +222,13 @@
     btn.innerHTML = `<span class="wingman-btn-icon">${wingmanUiSymbols.WINGMAN_LOADING_SYMBOL}</span> Wingman`;
 
     let generationStarted = false;
-    chrome.runtime.sendMessage({
+    const sendResult = runtimeGuards.safeSendRuntimeMessage(chrome.runtime, {
         action: "generate_comments",
         postText,
         targetNodeId: postContainer.id
     }, (response) => {
         if (chrome.runtime.lastError) {
-            console.error("Wingman: generate_comments failed:", chrome.runtime.lastError.message);
-            clearActiveResults();
-            alert(`Wingman couldn't open ChatGPT: ${chrome.runtime.lastError.message}`);
+            handleRuntimeMessagingFailure(new Error(chrome.runtime.lastError.message), "open ChatGPT");
             return;
         }
 
@@ -212,6 +242,11 @@
 
         generationStarted = true;
     });
+
+    if (!sendResult.ok) {
+        handleRuntimeMessagingFailure(sendResult.error, "open ChatGPT");
+        return;
+    }
 
     startPolling();
 
@@ -278,8 +313,14 @@
             return;
         }
 
-        chrome.runtime.sendMessage({ action: "check_pending_result" }, (response) => {
+        const sendResult = runtimeGuards.safeSendRuntimeMessage(chrome.runtime, { action: "check_pending_result" }, (response) => {
             if (chrome.runtime.lastError) {
+                const error = new Error(chrome.runtime.lastError.message);
+                if (runtimeGuards.isExtensionContextInvalidated(error)) {
+                    handleRuntimeMessagingFailure(error, "check for generated comments");
+                    return;
+                }
+
                 console.warn("Wingman: Poll error:", chrome.runtime.lastError.message);
                 return;
             }
@@ -288,6 +329,10 @@
                 renderResults(response.targetNodeId, response.results);
             }
         });
+
+        if (!sendResult.ok) {
+            handleRuntimeMessagingFailure(sendResult.error, "check for generated comments");
+        }
     }, 1000);
     }
 

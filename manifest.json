@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "LinkedIn Comment Wingman",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Generate high-quality comments using your ChatGPT session.",
   "icons": {
     "16": "assets/icon16.png",
@@ -31,6 +31,7 @@
         "src/linkedin-injection.js",
         "src/linkedin-ui.js",
         "src/linkedin-results.js",
+        "src/runtime-guards.js",
         "src/ui-symbols.js",
         "src/linkedin.js"
       ],
