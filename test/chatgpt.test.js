@@ -60,3 +60,16 @@ test("createFallbackChatGptExtraction can fall back to visible page text when tu
         documentLike.body.innerText
     );
 });
+
+test("createFallbackChatGptExtraction accepts meaningful assistant prose without option labels", () => {
+    const extraction = createFallbackChatGptExtraction();
+    const text = [
+        "The strongest part of this post is that it names the posture shift directly.",
+        "That makes the point feel earned instead of generic."
+    ].join("\n");
+
+    assert.equal(extraction.shouldAcceptPrimaryExtractionCandidate({
+        text,
+        isAssistantTurn: true
+    }), true);
+});

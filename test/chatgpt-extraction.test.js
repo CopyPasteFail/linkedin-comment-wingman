@@ -235,3 +235,88 @@ test("shared ChatGPT extraction helper exposes page-level response recovery", ()
         documentLike.body.innerText
     );
 });
+
+test("shouldAcceptPrimaryExtractionCandidate accepts meaningful assistant prose without option labels", () => {
+    const text = [
+        "The strongest part of this post is that it names the posture shift directly.",
+        "That makes the point feel earned instead of generic."
+    ].join("\n");
+
+    assert.equal(shouldAcceptPrimaryExtractionCandidate({
+        text,
+        isAssistantTurn: true
+    }), true);
+});
+
+test("extractDocumentResponseText recovers meaningful page text without requiring option markers", () => {
+    const documentLike = {
+        body: {
+            innerText: [
+                "The strongest part of this post is that it names the posture shift directly.",
+                "",
+                "That makes the point feel earned instead of generic."
+            ].join("\n")
+        }
+    };
+
+    assert.equal(
+        extractDocumentResponseText(documentLike),
+        documentLike.body.innerText
+    );
+});
+
+test("extractAssistantTurnText falls back to visible text nodes when selectors miss rendered assistant text", () => {
+    const allowedParent = {
+        closest() {
+            return null;
+        },
+        getAttribute(name) {
+            return name === "aria-hidden" ? "false" : null;
+        }
+    };
+    const buttonParent = {
+        closest(selector) {
+            return selector === "button, svg, nav, form, textarea, script, style" ? {} : null;
+        },
+        getAttribute() {
+            return null;
+        }
+    };
+    const treeNodes = [
+        { nodeValue: "Copy", parentElement: buttonParent },
+        { nodeValue: "The strongest part of this post is that it names the posture shift directly.", parentElement: allowedParent },
+        { nodeValue: "That makes the point feel earned instead of generic.", parentElement: allowedParent }
+    ];
+    const turn = {
+        innerText: "",
+        textContent: "",
+        ownerDocument: {
+            createTreeWalker() {
+                let index = -1;
+                return {
+                    nextNode() {
+                        index += 1;
+                        return treeNodes[index] || null;
+                    }
+                };
+            }
+        },
+        querySelectorAll() {
+            return [];
+        }
+    };
+
+    global.NodeFilter = {
+        SHOW_TEXT: 4,
+        FILTER_ACCEPT: 1,
+        FILTER_REJECT: 2
+    };
+
+    assert.equal(
+        extractAssistantTurnText(turn),
+        [
+            "The strongest part of this post is that it names the posture shift directly.",
+            "That makes the point feel earned instead of generic."
+        ].join("\n")
+    );
+});

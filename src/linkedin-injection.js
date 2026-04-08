@@ -18,11 +18,9 @@ function isExplicitCommentMatch({ ariaLabel, textContent }) {
 function isStructuralCommentMatch({
     buttonIndex,
     actionButtonCount,
-    hasCommentComposer,
     withinPostContainer
 }) {
     return withinPostContainer &&
-        hasCommentComposer &&
         buttonIndex === 1 &&
         actionButtonCount >= 3 &&
         actionButtonCount <= 5;

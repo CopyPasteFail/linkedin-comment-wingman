@@ -53,23 +53,27 @@ function isLikelyPromptTemplate(text) {
         cleanedText.includes("Return exactly this structure:");
 }
 
-function shouldAcceptPrimaryExtractionCandidate({ text, isAssistantTurn }) {
+function looksLikeUsefulAssistantText(text) {
     const cleanedText = stripStatusMarkers(text);
-    const hasOption1 = /option 1/i.test(cleanedText);
-    const hasOption2 = /option 2/i.test(cleanedText);
-    const hasOption3 = /option 3/i.test(cleanedText);
-    const hasCodeFence = /```(?:text)?/i.test(cleanedText);
+    const normalizedText = cleanedText.trim().toLowerCase();
 
-    if (!isAssistantTurn || cleanedText.length <= 30 || isLikelyPromptTemplate(cleanedText)) {
+    if (cleanedText.length < 30) {
         return false;
     }
 
-    return (hasOption1 && hasOption2) || (hasOption1 && hasOption3) || (hasOption1 && hasCodeFence);
+    if (isLikelyPromptTemplate(cleanedText)) {
+        return false;
+    }
+
+    return !isUiChromeText(normalizedText);
+}
+
+function shouldAcceptPrimaryExtractionCandidate({ text, isAssistantTurn }) {
+    return Boolean(isAssistantTurn) && looksLikeUsefulAssistantText(text);
 }
 
 function shouldAcceptAssistantFallback(text) {
-    const cleanedText = stripStatusMarkers(text);
-    return cleanedText.length > 50 && !isLikelyPromptTemplate(cleanedText);
+    return looksLikeUsefulAssistantText(text);
 }
 
 function isLikelyConversationTurnElement(element) {
@@ -156,6 +160,49 @@ function getRenderedTextBlocks(turn) {
     ));
 }
 
+function extractMeaningfulTextFromTurn(turn) {
+    if (!turn) {
+        return "";
+    }
+
+    const documentLike = turn.ownerDocument || globalThis.document;
+    const nodeFilter = globalThis.NodeFilter;
+    const createTreeWalker = documentLike?.createTreeWalker;
+
+    if (!createTreeWalker || !nodeFilter) {
+        return "";
+    }
+
+    const chunks = [];
+    const walker = createTreeWalker.call(documentLike, turn, nodeFilter.SHOW_TEXT);
+    let node = walker.nextNode();
+
+    while (node) {
+        const text = stripStatusMarkers(node.nodeValue || "").trim();
+        const parent = node.parentElement;
+        const isHidden = parent?.getAttribute?.("aria-hidden") === "true" ||
+            parent?.hidden ||
+            parent?.closest?.("[hidden], [aria-hidden=\"true\"]");
+        const isChrome = parent?.closest?.("button, svg, nav, form, textarea, script, style");
+
+        if (
+            text &&
+            parent &&
+            !isHidden &&
+            !isChrome &&
+            !isUiChromeText(text) &&
+            !isLikelyPromptTemplate(text)
+        ) {
+            chunks.push(text);
+        }
+
+        node = walker.nextNode();
+    }
+
+    const mergedText = chunks.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+    return looksLikeUsefulAssistantText(mergedText) ? mergedText : "";
+}
+
 function extractAssistantTurnText(turn) {
     const rawTurnText = stripStatusMarkers(turn?.innerText || turn?.textContent || "");
     if (shouldAcceptAssistantFallback(rawTurnText)) {
@@ -179,6 +226,11 @@ function extractAssistantTurnText(turn) {
         return formatOptionBlocks(renderedTextBlocks);
     }
 
+    const treeWalkerText = extractMeaningfulTextFromTurn(turn);
+    if (treeWalkerText) {
+        return treeWalkerText;
+    }
+
     return "";
 }
 
@@ -189,18 +241,16 @@ function extractDocumentResponseText(documentLike) {
         ""
     );
 
-    if (pageText.length > 50 && /option\s+\d+/i.test(pageText) && !isLikelyPromptTemplate(pageText)) {
-        return pageText;
-    }
-
-    return "";
+    return looksLikeUsefulAssistantText(pageText) ? pageText : "";
 }
 
 const wingmanChatGptExtraction = {
     collectTurns,
     extractDocumentResponseText,
     extractAssistantTurnText,
+    extractMeaningfulTextFromTurn,
     isLikelyPromptTemplate,
+    looksLikeUsefulAssistantText,
     shouldAcceptAssistantFallback,
     shouldAcceptPrimaryExtractionCandidate,
     stripStatusMarkers

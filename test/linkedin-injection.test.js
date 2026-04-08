@@ -27,6 +27,17 @@ test("isLikelyCommentButton falls back to the second icon-only action button on 
     }), true);
 });
 
+test("isLikelyCommentButton falls back to the second action button on a feed card without a rendered composer", () => {
+    assert.equal(isLikelyCommentButton({
+        ariaLabel: "",
+        textContent: "",
+        buttonIndex: 1,
+        actionButtonCount: 4,
+        hasCommentComposer: false,
+        withinPostContainer: true
+    }), true);
+});
+
 test("isLikelyCommentButton does not match other icon-only buttons in the action row", () => {
     assert.equal(isLikelyCommentButton({
         ariaLabel: "",
