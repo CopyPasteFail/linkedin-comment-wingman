@@ -12,16 +12,15 @@ jobs:
   release:
     runs-on: ubuntu-latest
     env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
       EXTENSION_PRIVATE_KEY_PEM: ${{ secrets.EXTENSION_PRIVATE_KEY_PEM }}
       RELEASE_TAG: ${{ github.ref_name }}
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: "22"
           cache: "npm"
@@ -39,7 +38,7 @@ jobs:
         run: npm run release:package
 
       - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v2.3.3
         with:
           tag_name: ${{ github.ref_name }}
           generate_release_notes: true
