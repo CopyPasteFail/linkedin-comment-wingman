@@ -30,12 +30,14 @@
     const wingmanUi = globalThis.WingmanLinkedInUi || {};
     const wingmanResults = globalThis.WingmanLinkedInResults || {};
     const wingmanInjection = globalThis.WingmanLinkedInInjection || {};
+    const wingmanPostContext = globalThis.WingmanLinkedInPostContext || {};
     const getCompanionLayout = wingmanUi.getCompanionLayout || (() => ({ mode: "inline" }));
     const getNextActivePostId = wingmanUi.getNextActivePostId || ((currentPostId, clickedPostId) => (
         currentPostId === clickedPostId ? null : clickedPostId
     ));
     const parseGeneratedOptions = wingmanResults.parseGeneratedOptions || ((text) => [text]);
     const isLikelyCommentButton = wingmanInjection.isLikelyCommentButton || (() => false);
+    const collectLikelyPostRoots = wingmanPostContext.collectLikelyPostRoots || (() => []);
     const activeWingmanState = {
         postId: null,
         postContainer: null,
@@ -48,7 +50,268 @@
     let pollingInterval = null;
     let extensionReloadNoticeShown = false;
 
+    const WINGMAN_DEBUG = globalThis.WINGMAN_DEBUG === true;
+
     console.log("Wingman Extension: Content script loaded and running!");
+
+    function toSafeLowerString(value) {
+    return typeof value === "string" ? value.trim().toLowerCase() : "";
+    }
+
+    function getSafeClassName(control) {
+    if (typeof control?.className === "string") {
+        return control.className;
+    }
+
+    if (typeof control?.getAttribute === "function") {
+        return typeof control.getAttribute("class") === "string"
+            ? control.getAttribute("class")
+            : "";
+    }
+
+    return "";
+    }
+
+    function getControlMetadata(controlLike) {
+    return {
+        text: toSafeLowerString(controlLike?.text ?? controlLike?.innerText ?? controlLike?.textContent),
+        aria: toSafeLowerString(controlLike?.aria ?? controlLike?.getAttribute?.("aria-label")),
+        className: toSafeLowerString(getSafeClassName(controlLike))
+    };
+    }
+
+    function getInteractiveControls(root) {
+    return Array.from(root?.querySelectorAll?.("button, [role='button'], a") || [])
+        .filter((element) => !element.classList?.contains("wingman-btn"));
+    }
+
+    function getControlLabel(control) {
+    return getControlMetadata(control);
+    }
+
+    function looksLikeReactionControl(controlLike) {
+    const { text, aria, className } = getControlMetadata(controlLike);
+
+    if (WINGMAN_DEBUG) {
+        console.log("Wingman reaction probe", {
+            text,
+            aria,
+            className
+        });
+    }
+
+    return text === "like" ||
+        text === "open reactions menu" ||
+        aria.includes("reaction button state") ||
+        aria.includes("like") ||
+        aria.includes("open reactions menu") ||
+        className.includes("reaction");
+    }
+
+    function looksLikeCommentControl({ text, aria }) {
+    const metadata = getControlMetadata({ text, aria });
+    return metadata.text === "comment" || metadata.aria.includes("comment");
+    }
+
+    function looksLikeRepostControl({ text, aria }) {
+    const metadata = getControlMetadata({ text, aria });
+    return metadata.text === "repost" || metadata.aria.includes("repost");
+    }
+
+    function looksLikeSendControl({ text, aria }) {
+    const metadata = getControlMetadata({ text, aria });
+    return metadata.text === "send" || metadata.aria.includes("send");
+    }
+
+    function looksLikeNoiseControl({ text, aria }) {
+    const metadata = getControlMetadata({ text, aria });
+    const combined = `${metadata.text} ${metadata.aria}`;
+    return /dismiss|report this ad|hide or report this ad|load more|full screen|previous page|next page|document page|collapse|expand/i.test(combined);
+    }
+
+    function getDistanceFromPostBottom(node, postContainer) {
+    const postRect = postContainer?.getBoundingClientRect?.();
+    const nodeRect = node?.getBoundingClientRect?.();
+
+    if (!postRect || !nodeRect) {
+        return Number.POSITIVE_INFINITY;
+    }
+
+    return Math.max(0, postRect.bottom - nodeRect.bottom);
+    }
+
+    function scoreFooterCandidate(candidate, postContainer) {
+    const controls = getInteractiveControls(candidate);
+    const controlLabels = controls.map(getControlLabel);
+    const controlCount = controlLabels.length;
+    const distanceFromBottom = getDistanceFromPostBottom(candidate, postContainer);
+    const postHeight = postContainer?.getBoundingClientRect?.().height || 0;
+    const isNearBottom = Number.isFinite(distanceFromBottom) && (
+        distanceFromBottom <= 120 ||
+        (postHeight > 0 && distanceFromBottom <= postHeight * 0.4)
+    );
+
+    let score = 0;
+    const tokens = [];
+
+    if (controlCount < 3) {
+        return { candidate, score: Number.NEGATIVE_INFINITY, controlCount, tokens, distanceFromBottom };
+    }
+
+    if (controlLabels.some(looksLikeReactionControl)) {
+        score += 4;
+        tokens.push("reaction");
+    }
+
+    if (controlLabels.some(looksLikeCommentControl)) {
+        score += 3;
+        tokens.push("comment");
+    }
+
+    if (controlLabels.some(looksLikeRepostControl)) {
+        score += 2;
+        tokens.push("repost");
+    }
+
+    if (controlLabels.some(looksLikeSendControl)) {
+        score += 2;
+        tokens.push("send");
+    }
+
+    if (isNearBottom) {
+        score += 2;
+        tokens.push("bottom");
+    }
+
+    if (controlLabels.some(looksLikeNoiseControl)) {
+        score -= 4;
+        tokens.push("noise");
+    }
+
+    if (controlCount > 6) {
+        score -= Math.min(4, controlCount - 6);
+        tokens.push("dense");
+    }
+
+    return {
+        candidate,
+        score,
+        controlCount,
+        tokens,
+        distanceFromBottom
+    };
+    }
+
+    function isLikelyPostSocialActionBar(actionBar, postContainer) {
+    const scored = scoreFooterCandidate(actionBar, postContainer);
+    return scored.score >= 6 &&
+        scored.tokens.includes("reaction") &&
+        !scored.tokens.includes("noise");
+    }
+
+    function collectAncestorCandidates(anchor, postContainer) {
+    const candidates = [];
+    let current = anchor?.parentElement || null;
+    let depth = 0;
+
+    while (current && current !== postContainer && depth < 8) {
+        if (postContainer?.contains?.(current)) {
+            candidates.push(current);
+        }
+
+        current = current.parentElement;
+        depth++;
+    }
+
+    return candidates;
+    }
+
+    function collectLowerPostCandidates(postContainer) {
+    const postRect = postContainer?.getBoundingClientRect?.();
+    if (!postRect) {
+        return [];
+    }
+
+    const thresholdTop = postRect.top + (postRect.height * 0.6);
+    const lowerControls = getInteractiveControls(postContainer)
+        .filter((control) => {
+            const rect = control.getBoundingClientRect?.();
+            return rect && rect.top >= thresholdTop;
+        });
+    const candidates = new Set();
+
+    lowerControls.forEach((control) => {
+        let current = control.parentElement;
+        let depth = 0;
+
+        while (current && current !== postContainer && depth < 6) {
+            if (postContainer.contains?.(current)) {
+                candidates.add(current);
+            }
+            current = current.parentElement;
+            depth++;
+        }
+    });
+
+    return Array.from(candidates);
+    }
+
+    function findBestFooterCandidate(postContainer) {
+    if (!postContainer) {
+        return null;
+    }
+
+    const reactionAnchors = getInteractiveControls(postContainer)
+        .filter((control) => looksLikeReactionControl(getControlLabel(control)));
+    const candidateSet = new Set();
+
+    reactionAnchors.forEach((anchor) => {
+        collectAncestorCandidates(anchor, postContainer).forEach((candidate) => candidateSet.add(candidate));
+    });
+
+    collectLowerPostCandidates(postContainer).forEach((candidate) => candidateSet.add(candidate));
+
+    const scoredCandidates = Array.from(candidateSet)
+        .map((candidate) => scoreFooterCandidate(candidate, postContainer))
+        .filter((entry) => Number.isFinite(entry.score))
+        .sort((a, b) => b.score - a.score || a.distanceFromBottom - b.distanceFromBottom);
+
+    if (WINGMAN_DEBUG) {
+        console.log("Wingman feed debug candidates", scoredCandidates.slice(0, 3).map((entry) => ({
+            score: entry.score,
+            controlCount: entry.controlCount,
+            tokens: entry.tokens,
+            distanceFromBottom: entry.distanceFromBottom
+        })));
+    }
+
+    const best = scoredCandidates[0];
+    if (!best || best.score < 6) {
+        return null;
+    }
+
+    return {
+        actionBar: best.candidate,
+        score: best
+    };
+    }
+
+    function collectPostContainers() {
+    const discoveredRoots = collectLikelyPostRoots(document);
+
+    if (WINGMAN_DEBUG) {
+        console.log("Wingman feed debug post roots", discoveredRoots.slice(0, 10).map((root) => ({
+            tagName: root?.tagName || null,
+            className: root?.className || null,
+            textPreview: (root?.innerText || root?.textContent || "").trim().slice(0, 160),
+            hasReactionControl: getInteractiveControls(root).some(looksLikeReactionControl),
+            hasPostMenu: Array.from(root?.querySelectorAll?.('[aria-label*="Open control menu for post by" i]') || []).length > 0,
+            interactiveCount: getInteractiveControls(root).length
+        })));
+    }
+
+    return discoveredRoots;
+    }
 
     function handleRuntimeMessagingFailure(error, actionDescription) {
     console.error(`Wingman: ${actionDescription} failed:`, error?.message || error);
@@ -66,83 +329,45 @@
     }
 
     function injectWingmanButtons() {
-    const buttons = document.querySelectorAll("button");
+    const postContainers = collectPostContainers();
 
-    buttons.forEach((btn) => {
-        if (processedButtons.has(btn)) return;
-
-        const ariaLabel = btn.getAttribute("aria-label") || "";
-        const span = btn.querySelector("span");
-        const textContent = (span ? span.textContent : btn.textContent).trim();
-
-        let actionBar = null;
-        let current = btn.parentElement;
-        let depth = 0;
-        while (current && depth < 5) {
-            const childBtns = current.querySelectorAll("button");
-            if (childBtns.length >= 3) {
-                actionBar = current;
-                break;
-            }
-            current = current.parentElement;
-            depth++;
-        }
-
-        if (!actionBar) return;
-
-        const actionButtons = Array.from(actionBar.querySelectorAll("button"))
-            .filter((candidate) => !candidate.classList.contains("wingman-btn"));
-        const buttonIndex = actionButtons.indexOf(btn);
-        const hasCommentComposer = Boolean(
-            document.querySelector(".comments-comment-box__form") ||
-            document.querySelector(".comments-comment-texteditor") ||
-            document.querySelector('[contenteditable="true"][role="textbox"]') ||
-            document.querySelector('textarea[placeholder*="comment" i]')
-        );
-
-        const isCommentLogic = isLikelyCommentButton({
-            ariaLabel,
-            textContent,
-            buttonIndex,
-            actionButtonCount: actionButtons.length,
-            hasCommentComposer
-        });
-
-        if (!isCommentLogic) return;
-
-        processedButtons.add(btn);
-
-        const postSelectors = [
-            ".feed-shared-update-v2",
-            ".update-components-article",
-            "article",
-            ".occludable-update",
-            ".fie-impression-container",
-            "[data-urn]",
-            "[data-id]"
-        ];
-
-        let postContainer = btn.closest(postSelectors.join(", "));
-
-        if (!postContainer) {
-            postContainer = actionBar;
-            for (let i = 0; i < 5; i++) {
-                if (postContainer.parentElement && postContainer.parentElement !== document.body) {
-                    postContainer = postContainer.parentElement;
-                    if (postContainer.tagName === "ARTICLE" || postContainer.classList.contains("feed-shared-update-v2")) {
-                        break;
-                    }
-                }
-            }
-        }
-
+    postContainers.forEach((postContainer) => {
         if (!postContainer) return;
 
         if (!postContainer.id) {
             postContainer.id = "wingman-post-" + (++postIdCounter);
         }
 
-        if (actionBar.querySelector(".wingman-btn")) return;
+        if (postContainer.querySelector(".wingman-btn")) return;
+
+        const footerCandidate = findBestFooterCandidate(postContainer);
+        const actionBar = footerCandidate?.actionBar || null;
+
+        if (!actionBar) return;
+
+        const actionButtons = getInteractiveControls(actionBar);
+        const commentLikeButton = actionButtons.find((control, index) => {
+            const label = getControlLabel(control);
+            const hasCommentComposer = Boolean(
+                postContainer?.querySelector(".comments-comment-box__form") ||
+                postContainer?.querySelector(".comments-comment-texteditor") ||
+                postContainer?.querySelector('[contenteditable="true"][role="textbox"]') ||
+                postContainer?.querySelector('textarea[placeholder*="comment" i]')
+            );
+
+            return isLikelyCommentButton({
+                ariaLabel: control.getAttribute?.("aria-label") || "",
+                textContent: control.innerText || control.textContent || "",
+                buttonIndex: index,
+                actionButtonCount: actionButtons.length,
+                hasCommentComposer,
+                withinPostContainer: true
+            }) || looksLikeCommentControl(label);
+        }) || actionButtons[0];
+
+        if (commentLikeButton) {
+            processedButtons.add(commentLikeButton);
+        }
 
         const wingmanBtn = document.createElement("button");
         wingmanBtn.className = "wingman-btn";
@@ -214,6 +439,12 @@
         alert("Wingman: Couldn't extract text from this post.");
         return;
     }
+
+    console.log("Wingman: Starting generation for post", {
+        postId: postContainer.id,
+        textLength: postText.length,
+        textPreview: postText.slice(0, 180)
+    });
 
     clearActiveResults();
     setActivePost(postContainer, actionBar, btn);
@@ -325,6 +556,11 @@
                 return;
             }
             if (response && response.hasPending) {
+                console.log("Wingman: Received pending result", {
+                    targetNodeId: response.targetNodeId,
+                    resultLength: response.results?.length || 0,
+                    resultPreview: response.results?.slice(0, 220) || ""
+                });
                 stopPolling();
                 renderResults(response.targetNodeId, response.results);
             }
@@ -486,6 +722,12 @@
 
     const options = parseGeneratedOptions(text);
 
+    console.log("Wingman: Parsed generated options", {
+        optionCount: options.length,
+        firstOptionPreview: options[0]?.slice(0, 220) || "",
+        rawPreview: text.slice(0, 220)
+    });
+
     const resultsContainer = buildResultsContainer("Generated comments");
 
     options.forEach((optionText) => {
@@ -562,4 +804,13 @@
             injectWingmanButtons();
         }, 2000);
     }
+
+    globalThis.WingmanLinkedInContentInternals = {
+        getInteractiveControls,
+        isLikelyPostSocialActionBar,
+        looksLikeReactionControl,
+        collectPostContainers,
+        scoreFooterCandidate,
+        findBestFooterCandidate
+    };
 })();

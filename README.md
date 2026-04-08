@@ -38,6 +38,14 @@ A Chrome extension that generates AI-powered comment suggestions for LinkedIn po
 3. A ChatGPT popup opens, generates comment options, and closes automatically.
 4. Click any suggested comment to copy it to your clipboard, then paste it into the LinkedIn comment box.
 
+## Why The ChatGPT Popup Stays In The Foreground
+
+Wingman intentionally keeps the ChatGPT popup focused while generation runs.
+
+This is not just a UX choice. In practice, hidden or unfocused ChatGPT popups can render more slowly, delay hydration, or expose incomplete assistant DOM content. That caused extraction to race ahead of the final response and made the extension unreliable unless the popup was brought to the foreground manually.
+
+Keeping the popup in the foreground gives Wingman the most reliable desktop ChatGPT layout and the most stable response extraction path.
+
 ## How It Works
 
 - The LinkedIn content script injects the Wingman button into the feed.
