@@ -3,6 +3,12 @@
   "name": "LinkedIn Comment Wingman",
   "version": "0.1.0",
   "description": "Generate high-quality comments using your ChatGPT session.",
+  "icons": {
+    "16": "assets/icon16.png",
+    "32": "assets/icon32.png",
+    "48": "assets/icon48.png",
+    "128": "assets/icon128.png"
+  },
   "permissions": [
     "windows",
     "storage",
@@ -25,6 +31,7 @@
         "src/linkedin-injection.js",
         "src/linkedin-ui.js",
         "src/linkedin-results.js",
+        "src/ui-symbols.js",
         "src/linkedin.js"
       ],
       "css": [
@@ -41,6 +48,12 @@
     }
   ],
   "action": {
-    "default_title": "LinkedIn Comment Wingman"
+    "default_title": "LinkedIn Comment Wingman",
+    "default_icon": {
+      "16": "assets/icon16.png",
+      "32": "assets/icon32.png",
+      "48": "assets/icon48.png",
+      "128": "assets/icon128.png"
+    }
   }
 }

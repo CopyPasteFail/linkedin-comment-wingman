@@ -7,6 +7,10 @@
 
     let postIdCounter = 0;
     const processedButtons = new WeakSet();
+    const wingmanUiSymbols = globalThis.WingmanUiSymbols || {
+        WINGMAN_IDLE_SYMBOL: "✨",
+        WINGMAN_LOADING_SYMBOL: "⏳"
+    };
     const wingmanUi = globalThis.WingmanLinkedInUi || {};
     const wingmanResults = globalThis.WingmanLinkedInResults || {};
     const wingmanInjection = globalThis.WingmanLinkedInInjection || {};
@@ -111,7 +115,7 @@
         const wingmanBtn = document.createElement("button");
         wingmanBtn.className = "wingman-btn";
         wingmanBtn.dataset.postId = postContainer.id;
-        wingmanBtn.innerHTML = '<span class="wingman-btn-icon">✨</span> Wingman';
+        wingmanBtn.innerHTML = `<span class="wingman-btn-icon">${wingmanUiSymbols.WINGMAN_IDLE_SYMBOL}</span> Wingman`;
         wingmanBtn.style.cssText = "display: inline-flex !important; visibility: visible !important; opacity: 1 !important;";
         wingmanBtn.addEventListener("click", (event) => {
             event.preventDefault();
@@ -183,7 +187,7 @@
     setActivePost(postContainer, actionBar, btn);
 
     btn.classList.add("loading");
-    btn.innerHTML = '<span class="wingman-btn-icon">⏳</span> Wingman';
+    btn.innerHTML = `<span class="wingman-btn-icon">${wingmanUiSymbols.WINGMAN_LOADING_SYMBOL}</span> Wingman`;
 
     let generationStarted = false;
     chrome.runtime.sendMessage({
@@ -297,7 +301,7 @@
     function resetWingmanButton() {
     document.querySelectorAll(".wingman-btn.loading").forEach((button) => {
         button.classList.remove("loading");
-        button.innerHTML = '<span class="wingman-btn-icon">✨</span> Wingman';
+        button.innerHTML = `<span class="wingman-btn-icon">${wingmanUiSymbols.WINGMAN_IDLE_SYMBOL}</span> Wingman`;
     });
     }
 
@@ -427,7 +431,7 @@
     const btn = activeWingmanState.button || postContainer.querySelector(".wingman-btn");
     if (btn) {
         btn.classList.remove("loading");
-        btn.innerHTML = '<span class="wingman-btn-icon">✨</span> Wingman';
+        btn.innerHTML = `<span class="wingman-btn-icon">${wingmanUiSymbols.WINGMAN_IDLE_SYMBOL}</span> Wingman`;
     }
 
     if (text.startsWith("Error:")) {
@@ -462,7 +466,7 @@
     const btn = activeWingmanState.button || postContainer.querySelector(".wingman-btn");
     if (btn) {
         btn.classList.remove("loading");
-        btn.innerHTML = '<span class="wingman-btn-icon">✨</span> Wingman';
+        btn.innerHTML = `<span class="wingman-btn-icon">${wingmanUiSymbols.WINGMAN_IDLE_SYMBOL}</span> Wingman`;
     }
 
     const resultsContainer = buildResultsContainer("Wingman error");
