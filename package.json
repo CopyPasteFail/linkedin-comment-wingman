@@ -4,6 +4,7 @@
   "description": "Chrome extension that generates AI-powered LinkedIn comments using ChatGPT",
   "main": "index.js",
   "scripts": {
+    "test": "node --test",
     "lint": "eslint src/",
     "audit": "npm audit --audit-level=high",
     "ci:checks": "npm run lint && npm run audit"

@@ -1,3 +1,32 @@
+const backgroundUtils = globalThis.WingmanBackgroundUtils || {
+  getChatGptPopupOptions() {
+    return {
+      url: "https://chatgpt.com/?model=gpt-4",
+      type: "popup",
+      width: 500,
+      height: 700,
+      focused: false,
+      state: "normal"
+    };
+  },
+  createActiveTaskFromWindow(createdWindow, prompt, senderTabId, targetNodeId) {
+    const createdTab = createdWindow?.tabs?.[0];
+    if (!createdWindow?.id || !createdTab?.id) {
+      return null;
+    }
+
+    return {
+      windowId: createdWindow.id,
+      tabId: createdTab.id,
+      prompt,
+      senderTabId,
+      targetNodeId
+    };
+  }
+};
+const getChatGptPopupOptions = backgroundUtils.getChatGptPopupOptions;
+const createActiveTaskFromWindow = backgroundUtils.createActiveTaskFromWindow;
+
 const PROMPT_INSTRUCTIONS = `# Role
 Write short LinkedIn comments for posts about AI, innovation, startups, product, infrastructure, and technology.
 
@@ -277,22 +306,27 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     console.log("Wingman BG: Received generate_comments request");
     
     const fullPrompt = PROMPT_INSTRUCTIONS + "\n" + request.postText;
-    
-    chrome.windows.create({
-      url: 'https://chatgpt.com/?model=gpt-4',
-      type: 'popup',
-      width: 500,
-      height: 700,
-      focused: false,
-      state: 'normal'
-    }, async (window) => {
-      const task = {
-        windowId: window.id,
-        tabId: window.tabs[0].id,
-        prompt: fullPrompt,
-        senderTabId: sender.tab.id,
-        targetNodeId: request.targetNodeId
-      };
+
+    chrome.windows.create(getChatGptPopupOptions(), async (createdWindow) => {
+      if (chrome.runtime.lastError) {
+        console.error("Wingman BG: Failed to open ChatGPT popup:", chrome.runtime.lastError.message);
+        sendResponse({ status: 'error', error: chrome.runtime.lastError.message });
+        return;
+      }
+
+      const task = createActiveTaskFromWindow(
+        createdWindow,
+        fullPrompt,
+        sender.tab?.id,
+        request.targetNodeId
+      );
+
+      if (!task) {
+        console.error("Wingman BG: Popup opened without a usable tab.");
+        sendResponse({ status: 'error', error: 'ChatGPT popup opened without a usable tab.' });
+        return;
+      }
+
       await setActiveTask(task);
       console.log("Wingman BG: Task stored. ChatGPT tab:", task.tabId, "LinkedIn tab:", task.senderTabId);
       sendResponse({ status: 'started' });

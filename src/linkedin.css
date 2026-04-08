@@ -1,15 +1,15 @@
 :root {
     --wm-blue: #0a66c2;
     --wm-blue-hover: #004182;
-    --wm-blue-light: #eef3f8;
+    --wm-blue-light: rgba(10, 102, 194, 0.12);
     --wm-text: #191919;
     --wm-text-secondary: #666666;
     --wm-bg: #ffffff;
-    --wm-bg-secondary: #f9fafb;
-    --wm-border: #e0dfdc;
-    --wm-shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.05);
-    --wm-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
-    --wm-radius: 8px;
+    --wm-bg-secondary: #f7f9fc;
+    --wm-border: #dce6f1;
+    --wm-shadow-sm: 0 8px 24px rgba(15, 23, 42, 0.08);
+    --wm-shadow-md: 0 18px 48px rgba(15, 23, 42, 0.16);
+    --wm-radius: 14px;
     --wm-transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -34,44 +34,48 @@
 }
 
 .wingman-btn:hover {
-    background-color: rgba(10, 102, 194, 0.1);
+    background-color: var(--wm-blue-light);
     color: var(--wm-blue);
+}
+
+.wingman-btn-active {
+    background: var(--wm-blue-light);
+    color: var(--wm-blue);
+    box-shadow: inset 0 0 0 1px rgba(10, 102, 194, 0.18);
+}
+
+.wingman-btn-active .wingman-btn-icon {
+    filter: drop-shadow(0 0 5px rgba(10, 102, 194, 0.28));
 }
 
 .wingman-btn-icon {
     font-size: 18px;
-    filter: drop-shadow(0 0 2px rgba(10, 102, 194, 0.3));
+    filter: drop-shadow(0 0 2px rgba(10, 102, 194, 0.2));
 }
 
 .wingman-btn.loading {
-    opacity: 0.7;
-    pointer-events: none;
+    opacity: 0.88;
 }
 
-/* Responsive Button - collapse text in narrow containers/compact views */
+.wingman-btn.loading .wingman-btn-icon {
+    animation: wm-spin 2s linear infinite;
+}
+
 @media screen and (max-width: 600px) {
     .wingman-btn {
         padding: 6px 8px;
-        font-size: 0; /* Hide text but keep icon */
+        font-size: 0;
         min-width: unset;
         width: 32px;
         height: 32px;
         border-radius: 50%;
         margin-left: 2px;
     }
-    
-    .wingman-btn::after {
-        content: none;
-    }
-    
+
     .wingman-btn .wingman-btn-icon {
         margin: 0;
         font-size: 18px;
     }
-}
-
-.wingman-btn.loading .wingman-btn-icon {
-    animation: wm-spin 2s linear infinite;
 }
 
 @keyframes wm-spin {
@@ -80,132 +84,161 @@
 }
 
 .wingman-results-container {
-    margin: 12px 0;
-    padding: 12px;
-    background-color: var(--wm-bg-secondary);
-    border-radius: var(--wm-radius);
-    border: 1px solid var(--wm-border);
     display: flex;
     flex-direction: column;
     gap: 12px;
+    margin: 14px 0 0;
+    padding: 14px;
+    background: color-mix(in srgb, var(--wm-bg-secondary) 92%, white 8%);
+    border: 1px solid var(--wm-border);
+    border-radius: var(--wm-radius);
     box-shadow: var(--wm-shadow-sm);
-    animation: wm-slide-down 0.3s ease-out;
+    animation: wm-fade-up 0.22s ease-out;
+    overflow-y: auto;
+    overscroll-behavior: contain;
 }
 
-@media screen and (min-width: 601px) {
-    .wingman-results-container {
-        margin: 16px 0;
-        padding: 20px;
-        gap: 16px;
-    }
+.wingman-results-inline {
+    width: 100%;
 }
 
-@keyframes wm-slide-down {
-    from { opacity: 0; transform: translateY(-10px); }
-    to { opacity: 1; transform: translateY(0); }
+.wingman-results-side {
+    margin: 0;
+    padding: 16px;
+    z-index: 2147483646;
+    box-shadow: var(--wm-shadow-md);
 }
 
 .wingman-header {
     display: flex;
+    align-items: baseline;
     justify-content: space-between;
-    align-items: center;
-    font-weight: 700;
+    gap: 10px;
+}
+
+.wingman-header-title {
     color: var(--wm-blue);
-    font-size: 15px;
-    letter-spacing: 0.01em;
-}
-
-.wingman-close-btn {
-    background: rgba(0, 0, 0, 0.05);
-    border: none;
-    cursor: pointer;
     font-size: 14px;
-    color: var(--wm-text-secondary);
-    width: 24px;
-    height: 24px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: var(--wm-transition);
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    text-transform: uppercase;
 }
 
-.wingman-close-btn:hover {
-    background-color: #ff4d4f;
-    color: white;
+.wingman-header-hint {
+    color: var(--wm-text-secondary);
+    font-size: 12px;
+    white-space: nowrap;
 }
 
 .wingman-option {
-    background-color: var(--wm-bg);
-    border: 1px solid var(--wm-border);
-    border-radius: var(--wm-radius);
-    padding: 16px 20px;
-    font-size: 14px;
-    line-height: 1.6;
+    appearance: none;
+    -webkit-appearance: none;
+    width: 100%;
+    display: block;
+    font: inherit;
+    font-weight: 400;
+    min-height: 0;
+    border: 1px solid rgba(10, 102, 194, 0.08);
+    border-radius: 12px;
+    background: var(--wm-bg);
+    padding: 16px 18px;
+    font-size: 15px;
+    line-height: 1.55;
     color: var(--wm-text);
     cursor: pointer;
     transition: var(--wm-transition);
+    text-align: left;
+    white-space: pre-line;
+    overflow: visible;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
     position: relative;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
 }
 
 .wingman-option:hover {
-    border-color: var(--wm-blue);
-    background-color: var(--wm-bg);
-    transform: translateY(-2px);
-    box-shadow: var(--wm-shadow-md);
+    border-color: rgba(10, 102, 194, 0.3);
+    transform: translateY(-1px);
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.1);
+}
+
+.wingman-option:focus-visible {
+    outline: 2px solid rgba(10, 102, 194, 0.45);
+    outline-offset: 2px;
 }
 
 .wingman-option::before {
-    content: '';
+    content: "";
     position: absolute;
-    left: 0;
-    top: 0;
-    bottom: 0;
+    inset: 0 auto 0 0;
     width: 4px;
+    border-radius: 12px 0 0 12px;
     background: transparent;
-    border-radius: var(--wm-radius) 0 0 var(--wm-radius);
-    transition: background-color 0.2s;
+    transition: background-color 0.2s ease;
 }
 
-.wingman-option:hover::before {
+.wingman-option:hover::before,
+.wingman-option:focus-visible::before {
     background: var(--wm-blue);
 }
 
 .wingman-option-copied::after {
-    content: '✓ Copied to clipboard';
+    content: "Copied";
     position: absolute;
-    bottom: -22px;
-    right: 0;
-    color: #52c41a;
+    top: 12px;
+    right: 14px;
     font-size: 11px;
-    font-weight: 600;
-    animation: wm-fade-in 0.2s ease-out;
+    font-weight: 700;
+    color: #17803d;
 }
 
-@keyframes wm-fade-in {
-    from { opacity: 0; }
-    to { opacity: 1; }
+.wingman-error-container .wingman-header-title {
+    color: #c0392b;
 }
 
-/* Dark mode support */
-@media (prefers-color-scheme: dark) {
-    :root {
-        --wm-bg: #1d2226;
-        --wm-bg-secondary: #2c3338;
-        --wm-border: #38434f;
-        --wm-text: #e0e0e0;
-        --wm-text-secondary: #b0b0b0;
-        --wm-blue-light: rgba(10, 102, 194, 0.15);
+.wingman-error-message {
+    border-color: rgba(192, 57, 43, 0.18);
+}
+
+.wingman-error-message p {
+    margin: 10px 0;
+}
+
+.wingman-error-message small {
+    color: var(--wm-text-secondary);
+}
+
+@keyframes wm-fade-up {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
     }
 }
 
-/* LinkedIn dark theme class fallback */
-.theme--dark, html[class*="dark"] {
+@media (prefers-color-scheme: dark) {
+    :root {
+        --wm-bg: #1d2226;
+        --wm-bg-secondary: #2b3237;
+        --wm-border: #3a4753;
+        --wm-text: #e6edf3;
+        --wm-text-secondary: #a8b3be;
+        --wm-blue-light: rgba(112, 181, 249, 0.16);
+        --wm-shadow-sm: 0 8px 24px rgba(0, 0, 0, 0.2);
+        --wm-shadow-md: 0 18px 48px rgba(0, 0, 0, 0.35);
+    }
+}
+
+.theme--dark,
+html[class*="dark"] {
     --wm-bg: #1d2226;
-    --wm-bg-secondary: #2c3338;
-    --wm-border: #38434f;
-    --wm-text: #e0e0e0;
-    --wm-text-secondary: #b0b0b0;
-    --wm-blue-light: rgba(10, 102, 194, 0.15);
+    --wm-bg-secondary: #2b3237;
+    --wm-border: #3a4753;
+    --wm-text: #e6edf3;
+    --wm-text-secondary: #a8b3be;
+    --wm-blue-light: rgba(112, 181, 249, 0.16);
+    --wm-shadow-sm: 0 8px 24px rgba(0, 0, 0, 0.2);
+    --wm-shadow-md: 0 18px 48px rgba(0, 0, 0, 0.35);
 }

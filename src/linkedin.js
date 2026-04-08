@@ -1,485 +1,516 @@
-let postIdCounter = 0;
-const processedButtons = new WeakSet();
+(() => {
+    if (globalThis.WingmanLinkedInContentScriptLoaded) {
+        return;
+    }
 
-console.log("Wingman Extension: Content script loaded and running!");
+    globalThis.WingmanLinkedInContentScriptLoaded = true;
 
-function injectWingmanButtons() {
-    // 1. Find the "Comment" buttons via span text or aria-label
-    const buttons = document.querySelectorAll('button');
-    
-    buttons.forEach(btn => {
-        // Skip if already processed using WeakSet to avoid DOM mutations that crash React
+    let postIdCounter = 0;
+    const processedButtons = new WeakSet();
+    const wingmanUi = globalThis.WingmanLinkedInUi || {};
+    const wingmanResults = globalThis.WingmanLinkedInResults || {};
+    const wingmanInjection = globalThis.WingmanLinkedInInjection || {};
+    const getCompanionLayout = wingmanUi.getCompanionLayout || (() => ({ mode: "inline" }));
+    const getNextActivePostId = wingmanUi.getNextActivePostId || ((currentPostId, clickedPostId) => (
+        currentPostId === clickedPostId ? null : clickedPostId
+    ));
+    const parseGeneratedOptions = wingmanResults.parseGeneratedOptions || ((text) => [text]);
+    const isLikelyCommentButton = wingmanInjection.isLikelyCommentButton || (() => false);
+    const activeWingmanState = {
+        postId: null,
+        postContainer: null,
+        actionBar: null,
+        button: null,
+        resultsContainer: null,
+        cleanupLayout: null
+    };
+
+    let pollingInterval = null;
+
+    console.log("Wingman Extension: Content script loaded and running!");
+
+    function injectWingmanButtons() {
+    const buttons = document.querySelectorAll("button");
+
+    buttons.forEach((btn) => {
         if (processedButtons.has(btn)) return;
-        
-        const ariaLabel = (btn.getAttribute('aria-label') || '').toLowerCase().trim();
-        const span = btn.querySelector('span');
-        const textContent = (span ? span.textContent : btn.textContent).trim().toLowerCase();
-        
-        // Exact matching to prevent matching "load more comments" or "view more options for X's comment"
-        const isCommentLogic = textContent === 'comment' || textContent === 'הגב' || 
-                               ariaLabel === 'comment' || ariaLabel === 'הגב' || 
-                               ariaLabel.startsWith('comment on');
-        
-        if (isCommentLogic) {
-            console.log("Wingman: Found a comment button candidate!", {ariaLabel, textContent, btn});
-            processedButtons.add(btn);
-            
-            // Find the action bar by searching up for a container holding multiple buttons (Like, Comment, Repost, Send)
-            // This is immune to LinkedIn changing their class names
-            let actionBar = null;
-            let current = btn.parentElement;
-            let depth = 0;
-            while (current && depth < 5) {
-                // Check if this container holds multiple distinct buttons
-                const childBtns = current.querySelectorAll('button');
-                if (childBtns.length >= 3) {
-                    actionBar = current;
-                    break;
-                }
-                current = current.parentElement;
-                depth++;
+
+        const ariaLabel = btn.getAttribute("aria-label") || "";
+        const span = btn.querySelector("span");
+        const textContent = (span ? span.textContent : btn.textContent).trim();
+
+        let actionBar = null;
+        let current = btn.parentElement;
+        let depth = 0;
+        while (current && depth < 5) {
+            const childBtns = current.querySelectorAll("button");
+            if (childBtns.length >= 3) {
+                actionBar = current;
+                break;
             }
-            
-            if (actionBar) {
-                console.log("Wingman: Found action bar for button!", actionBar);
-                
-                // Find the closest post container.
-                // We use a prioritized list and avoid generic selectors like ".relative" or ".update-v2-social-activity"
-                // which might be too small and only contain the buttons themselves.
-                const postSelectors = [
-                    '.feed-shared-update-v2', 
-                    '.update-components-article', 
-                    'article', 
-                    '.occludable-update',
-                    '.fie-impression-container',
-                    '[data-urn]',
-                    '[data-id]'
-                ];
-                
-                let postContainer = btn.closest(postSelectors.join(', '));
-                
-                if (!postContainer) {
-                    console.log("Wingman: Using structural fallback for postContainer");
-                    // Step up ~4-5 levels from the action bar. The post wrapper usually contains the header, body, and action bar.
-                    postContainer = actionBar;
-                    for (let i = 0; i < 5; i++) {
-                        if (postContainer.parentElement && postContainer.parentElement !== document.body) {
-                            postContainer = postContainer.parentElement;
-                            // If we hit an article or a recognized feed item, stop there
-                            if (postContainer.tagName === 'ARTICLE' || postContainer.classList.contains('feed-shared-update-v2')) {
-                                break;
-                            }
-                        }
+            current = current.parentElement;
+            depth++;
+        }
+
+        if (!actionBar) return;
+
+        const actionButtons = Array.from(actionBar.querySelectorAll("button"))
+            .filter((candidate) => !candidate.classList.contains("wingman-btn"));
+        const buttonIndex = actionButtons.indexOf(btn);
+        const hasCommentComposer = Boolean(
+            document.querySelector(".comments-comment-box__form") ||
+            document.querySelector(".comments-comment-texteditor") ||
+            document.querySelector('[contenteditable="true"][role="textbox"]') ||
+            document.querySelector('textarea[placeholder*="comment" i]')
+        );
+
+        const isCommentLogic = isLikelyCommentButton({
+            ariaLabel,
+            textContent,
+            buttonIndex,
+            actionButtonCount: actionButtons.length,
+            hasCommentComposer
+        });
+
+        if (!isCommentLogic) return;
+
+        processedButtons.add(btn);
+
+        const postSelectors = [
+            ".feed-shared-update-v2",
+            ".update-components-article",
+            "article",
+            ".occludable-update",
+            ".fie-impression-container",
+            "[data-urn]",
+            "[data-id]"
+        ];
+
+        let postContainer = btn.closest(postSelectors.join(", "));
+
+        if (!postContainer) {
+            postContainer = actionBar;
+            for (let i = 0; i < 5; i++) {
+                if (postContainer.parentElement && postContainer.parentElement !== document.body) {
+                    postContainer = postContainer.parentElement;
+                    if (postContainer.tagName === "ARTICLE" || postContainer.classList.contains("feed-shared-update-v2")) {
+                        break;
                     }
                 }
-                
-                if (!postContainer) {
-                    console.log("Wingman ERROR: Still could not resolve postContainer", btn);
-                    return;
-                }
-                
-                if (!postContainer.id) {
-                    postContainer.id = 'wingman-post-' + (++postIdCounter);
-                }
-
-                console.log("Wingman: Post container identified:", postContainer.id);
-
-                // Create the button (if not already added to this action bar)
-                if (!actionBar.querySelector('.wingman-btn')) {
-                    console.log("Wingman: Injecting wingmanBtn into action bar!");
-                    const wingmanBtn = document.createElement('button');
-                    wingmanBtn.className = 'wingman-btn';
-                    wingmanBtn.innerHTML = '<span class="wingman-btn-icon">✨</span> Wingman';
-                    
-                    // We'll add some inline styles to force visibility in case LinkedIn CSS hides it
-                    wingmanBtn.style.cssText = "display: inline-flex !important; visibility: visible !important; opacity: 1 !important;";
-                    
-                    wingmanBtn.addEventListener('click', (e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        console.log("Wingman: Clicked!");
-                        handleWingmanClick(wingmanBtn, postContainer);
-                    });
-
-                    // Append the button safely
-                    try {
-                        actionBar.appendChild(wingmanBtn);
-                        console.log("Wingman: Successfully appended button.");
-                    } catch(err) {
-                        console.error("Wingman: Error appending button:", err);
-                    }
-                } else {
-                     console.log("Wingman: Toolbar already has a wingman button. Skipping.");
-                }
-            } else {
-                console.log("Wingman: Candidate button did NOT have a recognized action bar ancestor.");
             }
         }
-    });
-}
 
-function extractPostText(postContainer) {
-    // 1. Try reliable structural/attribute hooks for the main content first
+        if (!postContainer) return;
+
+        if (!postContainer.id) {
+            postContainer.id = "wingman-post-" + (++postIdCounter);
+        }
+
+        if (actionBar.querySelector(".wingman-btn")) return;
+
+        const wingmanBtn = document.createElement("button");
+        wingmanBtn.className = "wingman-btn";
+        wingmanBtn.dataset.postId = postContainer.id;
+        wingmanBtn.innerHTML = '<span class="wingman-btn-icon">✨</span> Wingman';
+        wingmanBtn.style.cssText = "display: inline-flex !important; visibility: visible !important; opacity: 1 !important;";
+        wingmanBtn.addEventListener("click", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            handleWingmanClick(wingmanBtn, postContainer, actionBar);
+        });
+
+        try {
+            actionBar.appendChild(wingmanBtn);
+            syncWingmanButtonStates();
+        } catch (error) {
+            console.error("Wingman: Error appending button:", error);
+        }
+    });
+    }
+
+    function extractPostText(postContainer) {
     const contentSelectors = [
-        '.update-components-text',
-        '.feed-shared-update-v2__description',
-        '.feed-shared-inline-show-more-text',
-        '.update-components-text--core',
-        '.feed-shared-annotated-text',
-        '.feed-shared-article__description',
+        ".update-components-text",
+        ".feed-shared-update-v2__description",
+        ".feed-shared-inline-show-more-text",
+        ".update-components-text--core",
+        ".feed-shared-annotated-text",
+        ".feed-shared-article__description",
         '[data-test-id="main-feed-activity-card__commentary"]'
     ];
-    
+
     for (const selector of contentSelectors) {
-        const el = postContainer.querySelector(selector);
-        if (el && el.textContent.trim().length > 10) {
-            console.log("Wingman: Extracted text using specific selector:", selector);
-            return el.innerText || el.textContent;
+        const element = postContainer.querySelector(selector);
+        if (element && element.textContent.trim().length > 10) {
+            return element.innerText || element.textContent;
         }
     }
-    
-    // 2. Ultimate fallback: grab everything, but filter out common UI noise
-    console.log("Wingman: extractPostText used ultimate innerText fallback on container:", postContainer.id);
-    
-    // Clone to avoid modifying the actual page
+
     const clone = postContainer.cloneNode(true);
-    
-    // Remove noise elements from the clone before getting innerText
     const noiseSelectors = [
-        '.feed-shared-update-v2__social-row',
-        '.feed-shared-social-action-bar',
-        '.update-v2-social-activity',
-        '.comment-social-bar',
-        '.wingman-btn',
-        '.wingman-results-container',
-        'button',
-        'footer'
+        ".feed-shared-update-v2__social-row",
+        ".feed-shared-social-action-bar",
+        ".update-v2-social-activity",
+        ".comment-social-bar",
+        ".wingman-btn",
+        ".wingman-results-container",
+        "button",
+        "footer"
     ];
-    
-    noiseSelectors.forEach(s => {
-        clone.querySelectorAll(s).forEach(el => el.remove());
+
+    noiseSelectors.forEach((selector) => {
+        clone.querySelectorAll(selector).forEach((element) => element.remove());
     });
-    
-    const text = clone.innerText || clone.textContent || '';
+
+    const text = clone.innerText || clone.textContent || "";
     return text.slice(0, 2000).trim();
-}
+    }
 
-let pollingInterval = null;
+    function handleWingmanClick(btn, postContainer, actionBar) {
+    const nextActivePostId = getNextActivePostId(activeWingmanState.postId, postContainer.id);
+    if (!nextActivePostId) {
+        clearActiveResults();
+        return;
+    }
 
-function handleWingmanClick(btn, postContainer) {
     const postText = extractPostText(postContainer);
     if (!postText.trim()) {
         alert("Wingman: Couldn't extract text from this post.");
         return;
     }
 
-    btn.classList.add('loading');
-    btn.innerHTML = '<span class="wingman-btn-icon">⏳</span> Thinking...';
+    clearActiveResults();
+    setActivePost(postContainer, actionBar, btn);
 
-    // Remove old results if they exist
-    const oldContainer = postContainer.querySelector('.wingman-results-container');
-    if (oldContainer) oldContainer.remove();
+    btn.classList.add("loading");
+    btn.innerHTML = '<span class="wingman-btn-icon">⏳</span> Wingman';
 
+    let generationStarted = false;
     chrome.runtime.sendMessage({
-        action: 'generate_comments',
-        postText: postText,
+        action: "generate_comments",
+        postText,
         targetNodeId: postContainer.id
     }, (response) => {
-        console.log("Wingman: generate_comments response:", response);
+        if (chrome.runtime.lastError) {
+            console.error("Wingman: generate_comments failed:", chrome.runtime.lastError.message);
+            clearActiveResults();
+            alert(`Wingman couldn't open ChatGPT: ${chrome.runtime.lastError.message}`);
+            return;
+        }
+
+        if (!response || response.status !== "started") {
+            const errorMessage = response?.error || "ChatGPT popup did not start correctly.";
+            console.error("Wingman: generate_comments returned an error:", errorMessage);
+            clearActiveResults();
+            alert(`Wingman couldn't start comment generation: ${errorMessage}`);
+            return;
+        }
+
+        generationStarted = true;
     });
 
-    // Start polling for results as a backup delivery mechanism
     startPolling();
-}
 
-function startPolling() {
-    // Clear any existing poll
-    if (pollingInterval) clearInterval(pollingInterval);
-    
-    console.log("Wingman: Starting polling for results...");
+    window.setTimeout(() => {
+        if (!generationStarted && activeWingmanState.postId === postContainer.id) {
+            console.error("Wingman: Timed out waiting for background start acknowledgement.");
+            clearActiveResults();
+            alert("Wingman couldn't confirm that the ChatGPT popup started. Please try again.");
+        }
+    }, 4000);
+    }
+
+    function setActivePost(postContainer, actionBar, button) {
+    activeWingmanState.postId = postContainer.id;
+    activeWingmanState.postContainer = postContainer;
+    activeWingmanState.actionBar = actionBar;
+    activeWingmanState.button = button;
+    syncWingmanButtonStates();
+    }
+
+    function syncWingmanButtonStates() {
+    document.querySelectorAll(".wingman-btn").forEach((button) => {
+        const isActive = Boolean(activeWingmanState.postId) && button.dataset.postId === activeWingmanState.postId;
+        button.classList.toggle("wingman-btn-active", isActive);
+        button.setAttribute("aria-pressed", isActive ? "true" : "false");
+    });
+    }
+
+    function clearActiveResults() {
+    stopPolling();
+    teardownActiveLayout();
+
+    if (activeWingmanState.resultsContainer?.isConnected) {
+        activeWingmanState.resultsContainer.remove();
+    }
+
+    activeWingmanState.postId = null;
+    activeWingmanState.postContainer = null;
+    activeWingmanState.actionBar = null;
+    activeWingmanState.button = null;
+    activeWingmanState.resultsContainer = null;
+    resetWingmanButton();
+    syncWingmanButtonStates();
+    }
+
+    function teardownActiveLayout() {
+    if (activeWingmanState.cleanupLayout) {
+        activeWingmanState.cleanupLayout();
+        activeWingmanState.cleanupLayout = null;
+    }
+    }
+
+    function startPolling() {
+    stopPolling();
+
     let pollCount = 0;
-    const maxPolls = 180; // 3 minutes max (180 * 1s)
-    
+    const maxPolls = 180;
+
     pollingInterval = setInterval(() => {
         pollCount++;
         if (pollCount > maxPolls) {
-            console.log("Wingman: Polling timeout reached, stopping.");
             stopPolling();
             resetWingmanButton();
             return;
         }
-        
-        chrome.runtime.sendMessage({ action: 'check_pending_result' }, (response) => {
+
+        chrome.runtime.sendMessage({ action: "check_pending_result" }, (response) => {
             if (chrome.runtime.lastError) {
                 console.warn("Wingman: Poll error:", chrome.runtime.lastError.message);
                 return;
             }
             if (response && response.hasPending) {
-                console.log("Wingman: 🎉 Received result via polling! Text length:", response.results?.length);
                 stopPolling();
                 renderResults(response.targetNodeId, response.results);
             }
         });
     }, 1000);
-}
+    }
 
-function stopPolling() {
+    function stopPolling() {
     if (pollingInterval) {
         clearInterval(pollingInterval);
         pollingInterval = null;
     }
-}
+    }
 
-function resetWingmanButton() {
-    // Reset all loading wingman buttons
-    document.querySelectorAll('.wingman-btn.loading').forEach(btn => {
-        btn.classList.remove('loading');
-        btn.innerHTML = '<span class="wingman-btn-icon">✨</span> Wingman';
+    function resetWingmanButton() {
+    document.querySelectorAll(".wingman-btn.loading").forEach((button) => {
+        button.classList.remove("loading");
+        button.innerHTML = '<span class="wingman-btn-icon">✨</span> Wingman';
     });
-}
+    }
 
-function renderResults(targetNodeId, text) {
-    console.log("Wingman: renderResults called for:", targetNodeId, "text length:", text?.length);
-    
-    const postContainer = document.getElementById(targetNodeId);
-    if (!postContainer) {
-        console.error("Wingman: Could not find post container with id:", targetNodeId);
-        // Try to show it on the first wingman post we can find
-        const anyPost = document.querySelector('[id^="wingman-post-"]');
-        if (anyPost) {
-            console.log("Wingman: Falling back to first available post container:", anyPost.id);
-            renderResultsInContainer(anyPost, text);
-        } else {
-            console.error("Wingman: No wingman post containers found at all!");
-            alert("Wingman: Generated comments are ready but the post container was lost. Please try again.");
-        }
+    function renderResults(targetNodeId, text) {
+    if (!activeWingmanState.postId || activeWingmanState.postId !== targetNodeId) {
+        console.log("Wingman: Ignoring stale result for inactive post:", targetNodeId);
         return;
     }
 
-    renderResultsInContainer(postContainer, text);
-}
+    const postContainer = activeWingmanState.postContainer || document.getElementById(targetNodeId);
+    const actionBar = activeWingmanState.actionBar;
 
-function renderResultsInContainer(postContainer, text) {
-    // Reset button
-    const btn = postContainer.querySelector('.wingman-btn');
+    if (!postContainer || !actionBar) {
+        console.error("Wingman: Could not resolve active container for:", targetNodeId);
+        clearActiveResults();
+        alert("Wingman: Generated comments are ready, but the post moved. Please try again.");
+        return;
+    }
+
+    renderResultsInContainer(postContainer, actionBar, text);
+    }
+
+    function mountResultsContainer(resultsContainer, postContainer, actionBar) {
+    let rafId = 0;
+
+    const applyLayout = () => {
+        if (!postContainer.isConnected || !actionBar.isConnected) {
+            clearActiveResults();
+            return;
+        }
+
+        const layout = getCompanionLayout({
+            viewportWidth: window.innerWidth,
+            viewportHeight: window.innerHeight,
+            postRect: postContainer.getBoundingClientRect()
+        });
+        const isSideLayout = layout.mode === "side";
+
+        resultsContainer.classList.toggle("wingman-results-side", isSideLayout);
+        resultsContainer.classList.toggle("wingman-results-inline", !isSideLayout);
+
+        if (isSideLayout) {
+            if (resultsContainer.parentElement !== document.body) {
+                document.body.appendChild(resultsContainer);
+            }
+
+            resultsContainer.style.position = "fixed";
+            resultsContainer.style.top = `${layout.top}px`;
+            resultsContainer.style.left = `${layout.left}px`;
+            resultsContainer.style.width = `${layout.width}px`;
+            resultsContainer.style.maxHeight = `${layout.maxHeight}px`;
+        } else {
+            if (resultsContainer.parentElement !== actionBar.parentElement || resultsContainer.previousElementSibling !== actionBar) {
+                actionBar.insertAdjacentElement("afterend", resultsContainer);
+            }
+
+            resultsContainer.style.position = "";
+            resultsContainer.style.top = "";
+            resultsContainer.style.left = "";
+            resultsContainer.style.width = "";
+            resultsContainer.style.maxHeight = "";
+        }
+    };
+
+    const requestLayout = () => {
+        if (rafId) return;
+        rafId = window.requestAnimationFrame(() => {
+            rafId = 0;
+            if (activeWingmanState.resultsContainer === resultsContainer) {
+                applyLayout();
+            }
+        });
+    };
+
+    applyLayout();
+
+    window.addEventListener("resize", requestLayout, { passive: true });
+    document.addEventListener("scroll", requestLayout, true);
+
+    return () => {
+        if (rafId) {
+            window.cancelAnimationFrame(rafId);
+        }
+        window.removeEventListener("resize", requestLayout);
+        document.removeEventListener("scroll", requestLayout, true);
+    };
+    }
+
+    function setActiveResultsContainer(resultsContainer) {
+    teardownActiveLayout();
+
+    if (activeWingmanState.resultsContainer?.isConnected) {
+        activeWingmanState.resultsContainer.remove();
+    }
+
+    activeWingmanState.resultsContainer = resultsContainer;
+    activeWingmanState.cleanupLayout = mountResultsContainer(
+        resultsContainer,
+        activeWingmanState.postContainer,
+        activeWingmanState.actionBar
+    );
+    }
+
+    function buildResultsContainer(titleText) {
+    const resultsContainer = document.createElement("section");
+    resultsContainer.className = "wingman-results-container wingman-results-inline";
+
+    const header = document.createElement("div");
+    header.className = "wingman-header";
+
+    const title = document.createElement("span");
+    title.className = "wingman-header-title";
+    title.textContent = titleText;
+
+    const hint = document.createElement("span");
+    hint.className = "wingman-header-hint";
+    hint.textContent = "Click a comment to copy";
+
+    header.appendChild(title);
+    header.appendChild(hint);
+    resultsContainer.appendChild(header);
+
+    return resultsContainer;
+    }
+
+    function renderResultsInContainer(postContainer, actionBar, text) {
+    const btn = activeWingmanState.button || postContainer.querySelector(".wingman-btn");
     if (btn) {
-        btn.classList.remove('loading');
+        btn.classList.remove("loading");
         btn.innerHTML = '<span class="wingman-btn-icon">✨</span> Wingman';
     }
 
-    // 0. Pre-process: Filter out prompt noise/instructions
-    let cleanText = text;
-    const promptKeywords = [
-        "# Role",
-        "# Core objective",
-        "# Tone",
-        "# Core comment strategy",
-        "# Specificity rule",
-        "# Builder / operator credibility",
-        "# Ecosystem lens",
-        "# Emotional matching rule",
-        "# Conversational naturalness",
-        "# Humor rule",
-        "# Style variation rule",
-        "# Output count",
-        "# Writing rules",
-        "# Output format",
-        "# Quality standard",
-        "HERE IS THE LINKEDIN POST"
-    ];
-    
-    // If we find prompt keywords, try to find the actual start of options
-    const firstOptionIndex = text.search(/option 1/i);
-    const firstCodeBlockIndex = text.indexOf("```");
-    
-    if (firstOptionIndex !== -1 || firstCodeBlockIndex !== -1) {
-        const startIndex = (firstOptionIndex !== -1 && (firstCodeBlockIndex === -1 || firstOptionIndex < firstCodeBlockIndex)) 
-            ? firstOptionIndex 
-            : firstCodeBlockIndex;
-        
-        // Only trim if the noise is at the beginning
-        if (startIndex > 50) { 
-            console.log("Wingman: Trimming prompt noise from start, index:", startIndex);
-            cleanText = text.substring(startIndex);
-        }
-    }
-
-    // Also remove everything after the last option if there's significant noise
-    const lastOptionMatch = [...cleanText.matchAll(/option \d+/gi)].pop();
-    if (lastOptionMatch) {
-        const lastIndex = lastOptionMatch.index;
-        const remaining = cleanText.substring(lastIndex);
-        // If there's a lot of text after the last option that looks like instructions or metadata
-        if (remaining.includes("ChatGPT can make mistakes") || remaining.includes("# Quality standard")) {
-             // Find where the last block really ends
-             const lastClosingBlock = remaining.lastIndexOf("```");
-             if (lastClosingBlock !== -1) {
-                 cleanText = cleanText.substring(0, lastIndex + lastClosingBlock + 3);
-             }
-        }
-    }
-
-    // 0.5. Check if it's an error message
-    if (text.startsWith('Error:')) {
-        console.log("Wingman: Detected error message from AI, displaying as single block.");
-        renderError(postContainer, text);
+    if (text.startsWith("Error:")) {
+        renderError(postContainer, actionBar, text);
         return;
     }
 
-    // 1. Try the standard markdown block regex
-    const regex = /option \d+\n```(?:text)?\n([\s\S]*?)\n```/g;
-    let match;
-    const options = [];
-    while ((match = regex.exec(cleanText)) !== null) {
-        options.push(match[1].trim());
+    const options = parseGeneratedOptions(text);
+
+    const resultsContainer = buildResultsContainer("Generated comments");
+
+    options.forEach((optionText) => {
+        const optionElement = document.createElement("button");
+        optionElement.type = "button";
+        optionElement.className = "wingman-option";
+        optionElement.textContent = optionText;
+        optionElement.addEventListener("click", () => {
+            navigator.clipboard.writeText(optionText).then(() => {
+                optionElement.classList.add("wingman-option-copied");
+                setTimeout(() => optionElement.classList.remove("wingman-option-copied"), 2000);
+            });
+        });
+        resultsContainer.appendChild(optionElement);
+    });
+
+    activeWingmanState.postContainer = postContainer;
+    activeWingmanState.actionBar = actionBar;
+    setActiveResultsContainer(resultsContainer);
     }
 
-    // 2. If that fails, try a more lenient split by "option X"
-    if (options.length === 0) {
-        console.log("Wingman: Standard regex failed, trying lenient split on cleaned text...");
-        // Split by the "option X" pattern. \b ensures we match word boundaries.
-        // We don't require a preceding newline anymore as some UI views might collapse them.
-        const parts = cleanText.split(/\boption \d+[:\s\r\n]*/i);
-        
-        parts.forEach(part => {
-            let cleaned = part.trim()
-                .replace(/^```(text|markdown|plain)?/i, '') // Remove opening backticks
-                .replace(/```$/i, '')                       // Remove closing backticks
-                .trim();
-            
-            // Further cleaning for trailing artifacts
-            cleaned = cleaned.replace(/[\n\r\t\s]+option$/i, '').trim();
-            
-            // Check if this part is just instructions we missed
-            const looksLikeInstruction = promptKeywords.some(kw => cleaned.includes(kw)) || 
-                                       cleaned.length < 5 || 
-                                       (cleaned.includes("Return exactly") && cleaned.includes("options"));
-            
-            if (!looksLikeInstruction && cleaned.length > 5) {
-                options.push(cleaned);
+    function renderError(postContainer, actionBar, text) {
+    const btn = activeWingmanState.button || postContainer.querySelector(".wingman-btn");
+    if (btn) {
+        btn.classList.remove("loading");
+        btn.innerHTML = '<span class="wingman-btn-icon">✨</span> Wingman';
+    }
+
+    const resultsContainer = buildResultsContainer("Wingman error");
+    resultsContainer.classList.add("wingman-error-container");
+
+    const errorElement = document.createElement("div");
+    errorElement.className = "wingman-option wingman-error-message";
+
+    const errorTitle = document.createElement("strong");
+    errorTitle.textContent = "Sorry, something went wrong.";
+
+    const errorBody = document.createElement("p");
+    errorBody.textContent = text;
+
+    const errorHint = document.createElement("small");
+    errorHint.textContent = "If the popup still has the response, you can copy it manually.";
+
+    errorElement.appendChild(errorTitle);
+    errorElement.appendChild(errorBody);
+    errorElement.appendChild(errorHint);
+    resultsContainer.appendChild(errorElement);
+
+    activeWingmanState.postContainer = postContainer;
+    activeWingmanState.actionBar = actionBar;
+    setActiveResultsContainer(resultsContainer);
+    }
+
+    if (typeof chrome !== "undefined" && chrome.runtime?.onMessage && typeof document !== "undefined") {
+        chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
+            if (request.action === "show_results") {
+                stopPolling();
+                renderResults(request.targetNodeId, request.results);
+                sendResponse({ status: "received" });
+            }
+            return true;
+        });
+
+        const observer = new MutationObserver(() => {
+            try {
+                injectWingmanButtons();
+            } catch (error) {
+                console.error("Wingman: error injecting buttons", error);
             }
         });
 
-        // 2.5 If still nothing, and the text looks like a valid comment but missing markers
-        if (options.length === 0 && cleanText.length > 20 && !cleanText.includes("Error:")) {
-             console.log("Wingman: No options found via split, treating entire cleanText as 1 option.");
-             options.push(cleanText.trim());
-        }
+        setTimeout(() => {
+            observer.observe(document.body, { childList: true, subtree: true });
+            injectWingmanButtons();
+        }, 2000);
     }
-
-    // 3. Last resort fallback
-    if (options.length === 0) {
-        console.log("Wingman: All parsing failed or text was invalid.");
-        options.push("Error: Could not extract comments. Please check the ChatGPT popup window.");
-    }
-
-    console.log("Wingman: Parsed", options.length, "comment options");
-
-    // Remove old results container if it exists
-    const oldContainer = postContainer.querySelector('.wingman-results-container');
-    if (oldContainer) oldContainer.remove();
-
-    const resultsContainer = document.createElement('div');
-    resultsContainer.className = 'wingman-results-container';
-
-    const header = document.createElement('div');
-    header.className = 'wingman-header';
-    header.innerHTML = '✨ Generated Comments (Click to copy)';
-    
-    const closeBtn = document.createElement('button');
-    closeBtn.className = 'wingman-close-btn';
-    closeBtn.innerHTML = '✕';
-    closeBtn.onclick = () => resultsContainer.remove();
-    header.appendChild(closeBtn);
-    
-    resultsContainer.appendChild(header);
-
-    options.forEach((optText) => {
-        const optDiv = document.createElement('div');
-        optDiv.className = 'wingman-option';
-        
-        // Preserve line breaks
-        optDiv.innerHTML = optText.replace(/\n/g, '<br>');
-        
-        optDiv.onclick = () => {
-            navigator.clipboard.writeText(optText).then(() => {
-                optDiv.classList.add('wingman-option-copied');
-                setTimeout(() => optDiv.classList.remove('wingman-option-copied'), 2000);
-            });
-        };
-        resultsContainer.appendChild(optDiv);
-    });
-
-    // Append to the post
-    postContainer.appendChild(resultsContainer);
-    console.log("Wingman: ✅ Results container appended to post!", postContainer.id);
-    
-    // Scroll the results into view
-    resultsContainer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-}
-
-function renderError(postContainer, text) {
-    const resultsContainer = document.createElement('div');
-    resultsContainer.className = 'wingman-results-container wingman-error-container';
-
-    const header = document.createElement('div');
-    header.className = 'wingman-header';
-    header.innerHTML = '⚠️ Wingman Extraction Error';
-    
-    const closeBtn = document.createElement('button');
-    closeBtn.className = 'wingman-close-btn';
-    closeBtn.innerHTML = '✕';
-    closeBtn.onclick = () => resultsContainer.remove();
-    header.appendChild(closeBtn);
-    
-    resultsContainer.appendChild(header);
-
-    const errorDiv = document.createElement('div');
-    errorDiv.className = 'wingman-option wingman-error-message';
-    errorDiv.style.borderColor = '#ff4d4f';
-    errorDiv.style.backgroundColor = 'rgba(255, 77, 79, 0.05)';
-    errorDiv.innerHTML = `<strong>Sorry, something went wrong:</strong><br><br>${text}<br><br><small>If you see the response in the opened ChatGPT window, you can copy it manually.</small>`;
-    
-    resultsContainer.appendChild(errorDiv);
-
-    // Remove old container and append new one
-    const oldContainer = postContainer.querySelector('.wingman-results-container');
-    if (oldContainer) oldContainer.remove();
-    
-    postContainer.appendChild(resultsContainer);
-    resultsContainer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    
-    // Reset button
-    const btn = postContainer.querySelector('.wingman-btn');
-    if (btn) {
-        btn.classList.remove('loading');
-        btn.innerHTML = '<span class="wingman-btn-icon">✨</span> Wingman';
-    }
-}
-
-// Listener for direct messages from background
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    console.log("Wingman LinkedIn: Received message:", request.action);
-    if (request.action === 'show_results') {
-        console.log("Wingman LinkedIn: Direct delivery received! Text length:", request.results?.length, "target:", request.targetNodeId);
-        stopPolling(); // Stop polling since we got direct delivery
-        renderResults(request.targetNodeId, request.results);
-        sendResponse({ status: 'received' });
-    }
-    return true;
-});
-
-// Setup Mutation Observer to watch for feed scrolling
-const observer = new MutationObserver((_mutations) => {
-    try {
-        injectWingmanButtons();
-    } catch (e) {
-        console.error("Wingman: error injecting buttons", e);
-    }
-});
-
-// Start observing when DOM is somewhat ready
-setTimeout(() => {
-    observer.observe(document.body, { childList: true, subtree: true });
-    injectWingmanButtons();
-}, 2000);
+})();

@@ -22,6 +22,9 @@
         "https://*.linkedin.com/*"
       ],
       "js": [
+        "src/linkedin-injection.js",
+        "src/linkedin-ui.js",
+        "src/linkedin-results.js",
         "src/linkedin.js"
       ],
       "css": [
