@@ -9,6 +9,23 @@ A Chrome extension that generates AI-powered comment suggestions for LinkedIn po
 
 ## Installation
 
+### Install from GitHub Release
+
+1. Open the latest GitHub Release for this project.
+2. Download the `.crx` file if you want the simplest install path to try first.
+3. If Chrome accepts the `.crx`, open it and follow Chrome's install prompt.
+4. If Chrome blocks the `.crx`, download the `.zip` file instead and use the fallback steps below.
+
+### Fallback: install from ZIP as unpacked extension
+
+1. Download the release `.zip` file.
+2. Extract it to a folder on your computer.
+3. Open Chrome and navigate to `chrome://extensions`.
+4. Enable **Developer mode** (toggle in the top right).
+5. Click **Load unpacked** and select the extracted folder that contains `manifest.json`.
+
+### Install from source
+
 1. Clone this repository or download the source.
 2. Open Chrome and navigate to `chrome://extensions`.
 3. Enable **Developer mode** (toggle in the top right).

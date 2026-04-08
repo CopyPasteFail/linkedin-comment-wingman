@@ -1,6 +1,6 @@
 {
   "name": "linkedin-comment-wingman",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Chrome extension that generates AI-powered LinkedIn comments using ChatGPT",
   "main": "index.js",
   "scripts": {
