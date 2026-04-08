@@ -38,11 +38,11 @@ jobs:
         run: npm run release:package
 
       - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v2.3.3
-        with:
-          tag_name: ${{ github.ref_name }}
-          generate_release_notes: true
-          fail_on_unmatched_files: true
-          files: |
-            dist/release/*.crx
-            dist/release/*.zip
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" dist/release/*.crx dist/release/*.zip --clobber
+          else
+            gh release create "$RELEASE_TAG" dist/release/*.crx dist/release/*.zip --generate-notes --verify-tag
+          fi
