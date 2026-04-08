@@ -11,7 +11,8 @@ test("isLikelyCommentButton matches explicit comment labels", () => {
         textContent: "",
         buttonIndex: 0,
         actionButtonCount: 4,
-        hasCommentComposer: false
+        hasCommentComposer: false,
+        withinPostContainer: false
     }), true);
 });
 
@@ -21,7 +22,8 @@ test("isLikelyCommentButton falls back to the second icon-only action button on 
         textContent: "",
         buttonIndex: 1,
         actionButtonCount: 4,
-        hasCommentComposer: true
+        hasCommentComposer: true,
+        withinPostContainer: true
     }), true);
 });
 
@@ -31,6 +33,18 @@ test("isLikelyCommentButton does not match other icon-only buttons in the action
         textContent: "",
         buttonIndex: 0,
         actionButtonCount: 4,
-        hasCommentComposer: true
+        hasCommentComposer: true,
+        withinPostContainer: true
+    }), false);
+});
+
+test("isLikelyCommentButton does not use the structural fallback outside a feed post", () => {
+    assert.equal(isLikelyCommentButton({
+        ariaLabel: "",
+        textContent: "",
+        buttonIndex: 1,
+        actionButtonCount: 4,
+        hasCommentComposer: true,
+        withinPostContainer: false
     }), false);
 });

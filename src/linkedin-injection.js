@@ -18,9 +18,14 @@ function isExplicitCommentMatch({ ariaLabel, textContent }) {
 function isStructuralCommentMatch({
     buttonIndex,
     actionButtonCount,
-    hasCommentComposer
+    hasCommentComposer,
+    withinPostContainer
 }) {
-    return hasCommentComposer && buttonIndex === 1 && actionButtonCount >= 3 && actionButtonCount <= 5;
+    return withinPostContainer &&
+        hasCommentComposer &&
+        buttonIndex === 1 &&
+        actionButtonCount >= 3 &&
+        actionButtonCount <= 5;
 }
 
 function isLikelyCommentButton(metadata) {

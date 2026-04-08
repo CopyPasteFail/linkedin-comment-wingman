@@ -29,6 +29,7 @@
       ],
       "js": [
         "src/linkedin-injection.js",
+        "src/linkedin-post-context.js",
         "src/linkedin-ui.js",
         "src/linkedin-results.js",
         "src/runtime-guards.js",
@@ -44,6 +45,7 @@
         "https://chatgpt.com/*"
       ],
       "js": [
+        "src/chatgpt-extraction.js",
         "src/chatgpt.js"
       ]
     }

@@ -30,12 +30,14 @@
     const wingmanUi = globalThis.WingmanLinkedInUi || {};
     const wingmanResults = globalThis.WingmanLinkedInResults || {};
     const wingmanInjection = globalThis.WingmanLinkedInInjection || {};
+    const wingmanPostContext = globalThis.WingmanLinkedInPostContext || {};
     const getCompanionLayout = wingmanUi.getCompanionLayout || (() => ({ mode: "inline" }));
     const getNextActivePostId = wingmanUi.getNextActivePostId || ((currentPostId, clickedPostId) => (
         currentPostId === clickedPostId ? null : clickedPostId
     ));
     const parseGeneratedOptions = wingmanResults.parseGeneratedOptions || ((text) => [text]);
     const isLikelyCommentButton = wingmanInjection.isLikelyCommentButton || (() => false);
+    const resolvePostContainer = wingmanPostContext.resolvePostContainer || (() => null);
     const activeWingmanState = {
         postId: null,
         postContainer: null,
@@ -90,14 +92,16 @@
 
         if (!actionBar) return;
 
+        const postContainer = resolvePostContainer(btn, actionBar, document.body);
+
         const actionButtons = Array.from(actionBar.querySelectorAll("button"))
             .filter((candidate) => !candidate.classList.contains("wingman-btn"));
         const buttonIndex = actionButtons.indexOf(btn);
         const hasCommentComposer = Boolean(
-            document.querySelector(".comments-comment-box__form") ||
-            document.querySelector(".comments-comment-texteditor") ||
-            document.querySelector('[contenteditable="true"][role="textbox"]') ||
-            document.querySelector('textarea[placeholder*="comment" i]')
+            postContainer?.querySelector(".comments-comment-box__form") ||
+            postContainer?.querySelector(".comments-comment-texteditor") ||
+            postContainer?.querySelector('[contenteditable="true"][role="textbox"]') ||
+            postContainer?.querySelector('textarea[placeholder*="comment" i]')
         );
 
         const isCommentLogic = isLikelyCommentButton({
@@ -105,36 +109,13 @@
             textContent,
             buttonIndex,
             actionButtonCount: actionButtons.length,
-            hasCommentComposer
+            hasCommentComposer,
+            withinPostContainer: Boolean(postContainer)
         });
 
         if (!isCommentLogic) return;
 
         processedButtons.add(btn);
-
-        const postSelectors = [
-            ".feed-shared-update-v2",
-            ".update-components-article",
-            "article",
-            ".occludable-update",
-            ".fie-impression-container",
-            "[data-urn]",
-            "[data-id]"
-        ];
-
-        let postContainer = btn.closest(postSelectors.join(", "));
-
-        if (!postContainer) {
-            postContainer = actionBar;
-            for (let i = 0; i < 5; i++) {
-                if (postContainer.parentElement && postContainer.parentElement !== document.body) {
-                    postContainer = postContainer.parentElement;
-                    if (postContainer.tagName === "ARTICLE" || postContainer.classList.contains("feed-shared-update-v2")) {
-                        break;
-                    }
-                }
-            }
-        }
 
         if (!postContainer) return;
 
@@ -214,6 +195,12 @@
         alert("Wingman: Couldn't extract text from this post.");
         return;
     }
+
+    console.log("Wingman: Starting generation for post", {
+        postId: postContainer.id,
+        textLength: postText.length,
+        textPreview: postText.slice(0, 180)
+    });
 
     clearActiveResults();
     setActivePost(postContainer, actionBar, btn);
@@ -325,6 +312,11 @@
                 return;
             }
             if (response && response.hasPending) {
+                console.log("Wingman: Received pending result", {
+                    targetNodeId: response.targetNodeId,
+                    resultLength: response.results?.length || 0,
+                    resultPreview: response.results?.slice(0, 220) || ""
+                });
                 stopPolling();
                 renderResults(response.targetNodeId, response.results);
             }
@@ -485,6 +477,12 @@
     }
 
     const options = parseGeneratedOptions(text);
+
+    console.log("Wingman: Parsed generated options", {
+        optionCount: options.length,
+        firstOptionPreview: options[0]?.slice(0, 220) || "",
+        rawPreview: text.slice(0, 220)
+    });
 
     const resultsContainer = buildResultsContainer("Generated comments");
 
