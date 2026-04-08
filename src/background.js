@@ -1,12 +1,52 @@
 const backgroundUtils = globalThis.WingmanBackgroundUtils || {
+  DEFAULT_POPUP_WIDTH: 252,
+  DEFAULT_POPUP_HEIGHT: 368,
+  MIN_POPUP_WIDTH: 252,
+  MIN_POPUP_HEIGHT: 368,
+  DEFAULT_POPUP_MARGIN: 24,
+  DEFAULT_POPUP_ZOOM_FACTOR: 0.47,
+  clampPopupDimension(value, minimum) {
+    return Math.max(minimum, value);
+  },
+  getPopupPosition(screenMetrics, width, height) {
+    const availWidth = Number(screenMetrics?.availWidth);
+    const availHeight = Number(screenMetrics?.availHeight);
+    const availLeft = Number(screenMetrics?.availLeft) || 0;
+    const availTop = Number(screenMetrics?.availTop) || 0;
+
+    if (!Number.isFinite(availWidth) || !Number.isFinite(availHeight)) {
+      return {};
+    }
+
+    return {
+      left: Math.max(
+        availLeft + backgroundUtils.DEFAULT_POPUP_MARGIN,
+        availLeft + availWidth - width - backgroundUtils.DEFAULT_POPUP_MARGIN
+      ),
+      top: Math.max(
+        availTop + backgroundUtils.DEFAULT_POPUP_MARGIN,
+        availTop + Math.min(backgroundUtils.DEFAULT_POPUP_MARGIN, availHeight - height - backgroundUtils.DEFAULT_POPUP_MARGIN)
+      )
+    };
+  },
   getChatGptPopupOptions() {
+    const width = backgroundUtils.clampPopupDimension(
+      backgroundUtils.DEFAULT_POPUP_WIDTH,
+      backgroundUtils.MIN_POPUP_WIDTH
+    );
+    const height = backgroundUtils.clampPopupDimension(
+      backgroundUtils.DEFAULT_POPUP_HEIGHT,
+      backgroundUtils.MIN_POPUP_HEIGHT
+    );
+
     return {
       url: "https://chatgpt.com/?model=gpt-4",
       type: "popup",
-      width: 500,
-      height: 700,
-      focused: false,
-      state: "normal"
+      width,
+      height,
+      focused: true,
+      state: "normal",
+      ...backgroundUtils.getPopupPosition(globalThis.screen, width, height)
     };
   },
   createActiveTaskFromWindow(createdWindow, prompt, senderTabId, targetNodeId) {
@@ -22,6 +62,28 @@ const backgroundUtils = globalThis.WingmanBackgroundUtils || {
       senderTabId,
       targetNodeId
     };
+  },
+  async applyChatGptPopupPresentation(tabId) {
+    if (!tabId || typeof chrome?.tabs?.setZoom !== "function") {
+      return;
+    }
+
+    try {
+      if (typeof chrome.tabs.setZoomSettings === "function") {
+        await chrome.tabs.setZoomSettings(tabId, {
+          mode: "manual",
+          scope: "per-tab"
+        });
+      }
+
+      await chrome.tabs.setZoom(tabId, backgroundUtils.DEFAULT_POPUP_ZOOM_FACTOR);
+      console.log("Wingman BG: Applied popup zoom", {
+        tabId,
+        zoomFactor: backgroundUtils.DEFAULT_POPUP_ZOOM_FACTOR
+      });
+    } catch (error) {
+      console.warn("Wingman BG: Could not apply popup zoom:", error?.message || error);
+    }
   }
 };
 const getChatGptPopupOptions = backgroundUtils.getChatGptPopupOptions;
@@ -327,6 +389,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         return;
       }
 
+      await backgroundUtils.applyChatGptPopupPresentation(task.tabId);
       await setActiveTask(task);
       console.log("Wingman BG: Task stored. ChatGPT tab:", task.tabId, "LinkedIn tab:", task.senderTabId);
       sendResponse({ status: 'started' });

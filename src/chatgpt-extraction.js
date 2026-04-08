@@ -76,6 +76,19 @@ function shouldAcceptAssistantFallback(text) {
     return looksLikeUsefulAssistantText(text);
 }
 
+function isAssistantTurn(turn) {
+    if (!turn) {
+        return false;
+    }
+
+    const role = turn.getAttribute?.("data-message-author-role") || "";
+
+    return role === "assistant" ||
+        turn.classList?.contains("agent-turn") ||
+        turn.classList?.contains("turn-assistant") ||
+        Boolean(turn.querySelector?.('[data-message-author-role="assistant"]'));
+}
+
 function isLikelyConversationTurnElement(element) {
     if (!element) {
         return false;
@@ -107,6 +120,18 @@ function collectTurns(documentLike) {
     });
 
     return Array.from(turns);
+}
+
+function findLastAssistantTurn(documentLike) {
+    const turns = collectTurns(documentLike);
+
+    for (let index = turns.length - 1; index >= 0; index -= 1) {
+        if (isAssistantTurn(turns[index])) {
+            return turns[index];
+        }
+    }
+
+    return null;
 }
 
 function getUniqueNodeTexts(nodeList) {
@@ -204,11 +229,6 @@ function extractMeaningfulTextFromTurn(turn) {
 }
 
 function extractAssistantTurnText(turn) {
-    const rawTurnText = stripStatusMarkers(turn?.innerText || turn?.textContent || "");
-    if (shouldAcceptAssistantFallback(rawTurnText)) {
-        return rawTurnText;
-    }
-
     const selectAll = (selector) => Array.from(turn?.querySelectorAll?.(selector) || []);
     const codeBlockTexts = getUniqueNodeTexts([
         ...selectAll("pre code"),
@@ -231,6 +251,11 @@ function extractAssistantTurnText(turn) {
         return treeWalkerText;
     }
 
+    const rawTurnText = stripStatusMarkers(turn?.innerText || turn?.textContent || "");
+    if (shouldAcceptAssistantFallback(rawTurnText)) {
+        return rawTurnText;
+    }
+
     return "";
 }
 
@@ -249,6 +274,8 @@ const wingmanChatGptExtraction = {
     extractDocumentResponseText,
     extractAssistantTurnText,
     extractMeaningfulTextFromTurn,
+    findLastAssistantTurn,
+    isAssistantTurn,
     isLikelyPromptTemplate,
     looksLikeUsefulAssistantText,
     shouldAcceptAssistantFallback,

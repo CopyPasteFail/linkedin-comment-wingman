@@ -50,14 +50,34 @@
     let pollingInterval = null;
     let extensionReloadNoticeShown = false;
 
+    const WINGMAN_DEBUG = globalThis.WINGMAN_DEBUG === true;
+
     console.log("Wingman Extension: Content script loaded and running!");
 
-    function normalizeText(value) {
-    return (value || "").trim().toLowerCase();
+    function toSafeLowerString(value) {
+    return typeof value === "string" ? value.trim().toLowerCase() : "";
     }
 
-    function safeString(value) {
-    return typeof value === "string" ? value : "";
+    function getSafeClassName(control) {
+    if (typeof control?.className === "string") {
+        return control.className;
+    }
+
+    if (typeof control?.getAttribute === "function") {
+        return typeof control.getAttribute("class") === "string"
+            ? control.getAttribute("class")
+            : "";
+    }
+
+    return "";
+    }
+
+    function getControlMetadata(controlLike) {
+    return {
+        text: toSafeLowerString(controlLike?.text ?? controlLike?.innerText ?? controlLike?.textContent),
+        aria: toSafeLowerString(controlLike?.aria ?? controlLike?.getAttribute?.("aria-label")),
+        className: toSafeLowerString(getSafeClassName(controlLike))
+    };
     }
 
     function getInteractiveControls(root) {
@@ -66,26 +86,19 @@
     }
 
     function getControlLabel(control) {
-    return {
-        text: normalizeText(safeString(control?.innerText || control?.textContent)),
-        aria: normalizeText(safeString(control?.getAttribute?.("aria-label"))),
-        className: normalizeText(safeString(control?.className))
-    };
+    return getControlMetadata(control);
     }
 
     function looksLikeReactionControl(controlLike) {
-    const controlText = controlLike?.text ?? controlLike?.innerText ?? controlLike?.textContent;
-    const controlAria = controlLike?.aria ?? controlLike?.getAttribute?.("aria-label");
-    const controlClassName = controlLike?.className;
-    const text = safeString(controlText).toLowerCase();
-    const aria = safeString(controlAria).toLowerCase();
-    const className = safeString(controlClassName).toLowerCase();
+    const { text, aria, className } = getControlMetadata(controlLike);
 
-    console.log("Wingman reaction probe", {
-        text: controlText,
-        aria: controlAria,
-        className: controlClassName
-    });
+    if (WINGMAN_DEBUG) {
+        console.log("Wingman reaction probe", {
+            text,
+            aria,
+            className
+        });
+    }
 
     return text === "like" ||
         text === "open reactions menu" ||
@@ -96,25 +109,23 @@
     }
 
     function looksLikeCommentControl({ text, aria }) {
-    text = safeString(text).toLowerCase();
-    aria = safeString(aria).toLowerCase();
-    return text === "comment" || aria.includes("comment");
+    const metadata = getControlMetadata({ text, aria });
+    return metadata.text === "comment" || metadata.aria.includes("comment");
     }
 
     function looksLikeRepostControl({ text, aria }) {
-    text = safeString(text).toLowerCase();
-    aria = safeString(aria).toLowerCase();
-    return text === "repost" || aria.includes("repost");
+    const metadata = getControlMetadata({ text, aria });
+    return metadata.text === "repost" || metadata.aria.includes("repost");
     }
 
     function looksLikeSendControl({ text, aria }) {
-    text = safeString(text).toLowerCase();
-    aria = safeString(aria).toLowerCase();
-    return text === "send" || aria.includes("send");
+    const metadata = getControlMetadata({ text, aria });
+    return metadata.text === "send" || metadata.aria.includes("send");
     }
 
     function looksLikeNoiseControl({ text, aria }) {
-    const combined = `${safeString(text).toLowerCase()} ${safeString(aria).toLowerCase()}`;
+    const metadata = getControlMetadata({ text, aria });
+    const combined = `${metadata.text} ${metadata.aria}`;
     return /dismiss|report this ad|hide or report this ad|load more|full screen|previous page|next page|document page|collapse|expand/i.test(combined);
     }
 
@@ -265,12 +276,14 @@
         .filter((entry) => Number.isFinite(entry.score))
         .sort((a, b) => b.score - a.score || a.distanceFromBottom - b.distanceFromBottom);
 
-    console.log("Wingman feed debug candidates", scoredCandidates.slice(0, 3).map((entry) => ({
-        score: entry.score,
-        controlCount: entry.controlCount,
-        tokens: entry.tokens,
-        distanceFromBottom: entry.distanceFromBottom
-    })));
+    if (WINGMAN_DEBUG) {
+        console.log("Wingman feed debug candidates", scoredCandidates.slice(0, 3).map((entry) => ({
+            score: entry.score,
+            controlCount: entry.controlCount,
+            tokens: entry.tokens,
+            distanceFromBottom: entry.distanceFromBottom
+        })));
+    }
 
     const best = scoredCandidates[0];
     if (!best || best.score < 6) {
@@ -286,14 +299,16 @@
     function collectPostContainers() {
     const discoveredRoots = collectLikelyPostRoots(document);
 
-    console.log("Wingman feed debug post roots", discoveredRoots.slice(0, 10).map((root) => ({
-        tagName: root?.tagName || null,
-        className: root?.className || null,
-        textPreview: (root?.innerText || root?.textContent || "").trim().slice(0, 160),
-        hasReactionControl: getInteractiveControls(root).some(looksLikeReactionControl),
-        hasPostMenu: Array.from(root?.querySelectorAll?.('[aria-label*="Open control menu for post by" i]') || []).length > 0,
-        interactiveCount: getInteractiveControls(root).length
-    })));
+    if (WINGMAN_DEBUG) {
+        console.log("Wingman feed debug post roots", discoveredRoots.slice(0, 10).map((root) => ({
+            tagName: root?.tagName || null,
+            className: root?.className || null,
+            textPreview: (root?.innerText || root?.textContent || "").trim().slice(0, 160),
+            hasReactionControl: getInteractiveControls(root).some(looksLikeReactionControl),
+            hasPostMenu: Array.from(root?.querySelectorAll?.('[aria-label*="Open control menu for post by" i]') || []).length > 0,
+            interactiveCount: getInteractiveControls(root).length
+        })));
+    }
 
     return discoveredRoots;
     }

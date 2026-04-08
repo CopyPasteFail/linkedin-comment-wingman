@@ -6,6 +6,21 @@ function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+function getVisibilityDiagnostics(documentLike = document) {
+    return {
+        visibilityState: documentLike?.visibilityState || "unknown",
+        hasFocus: typeof documentLike?.hasFocus === "function" ? documentLike.hasFocus() : false,
+        hidden: Boolean(documentLike?.hidden)
+    };
+}
+
+function logVisibility(stage, documentLike = document) {
+    console.log("Wingman ChatGPT visibility:", {
+        stage,
+        ...getVisibilityDiagnostics(documentLike)
+    });
+}
+
 function createFallbackChatGptExtraction() {
     const statusMarkers = [
         "Pending",
@@ -81,6 +96,19 @@ function createFallbackChatGptExtraction() {
         return looksLikeUsefulAssistantText(text);
     }
 
+    function isAssistantTurn(turn) {
+        if (!turn) {
+            return false;
+        }
+
+        const role = turn.getAttribute?.("data-message-author-role") || "";
+
+        return role === "assistant" ||
+            turn.classList?.contains("agent-turn") ||
+            turn.classList?.contains("turn-assistant") ||
+            Boolean(turn.querySelector?.('[data-message-author-role="assistant"]'));
+    }
+
     function isLikelyConversationTurnElement(element) {
         if (!element) {
             return false;
@@ -112,6 +140,18 @@ function createFallbackChatGptExtraction() {
         });
 
         return Array.from(turns);
+    }
+
+    function findLastAssistantTurn(documentLike) {
+        const turns = collectTurns(documentLike);
+
+        for (let index = turns.length - 1; index >= 0; index -= 1) {
+            if (isAssistantTurn(turns[index])) {
+                return turns[index];
+            }
+        }
+
+        return null;
     }
 
     function getUniqueNodeTexts(nodeList) {
@@ -209,11 +249,6 @@ function createFallbackChatGptExtraction() {
     }
 
     function extractAssistantTurnText(turn) {
-        const rawTurnText = stripStatusMarkers(turn?.innerText || turn?.textContent || "");
-        if (shouldAcceptAssistantFallback(rawTurnText)) {
-            return rawTurnText;
-        }
-
         const selectAll = (selector) => Array.from(turn?.querySelectorAll?.(selector) || []);
         const codeBlockTexts = getUniqueNodeTexts([
             ...selectAll("pre code"),
@@ -236,6 +271,11 @@ function createFallbackChatGptExtraction() {
             return treeWalkerText;
         }
 
+        const rawTurnText = stripStatusMarkers(turn?.innerText || turn?.textContent || "");
+        if (shouldAcceptAssistantFallback(rawTurnText)) {
+            return rawTurnText;
+        }
+
         return "";
     }
 
@@ -254,6 +294,8 @@ function createFallbackChatGptExtraction() {
         extractDocumentResponseText,
         extractAssistantTurnText,
         extractMeaningfulTextFromTurn,
+        findLastAssistantTurn,
+        isAssistantTurn,
         stripStatusMarkers,
         isLikelyPromptTemplate,
         looksLikeUsefulAssistantText,
@@ -281,6 +323,90 @@ function getTurns() {
     return chatGptExtraction.collectTurns(document);
 }
 
+async function waitForStableAssistantContent({
+    documentLike = document,
+    extraction = chatGptExtraction,
+    previousAssistantTurn = null,
+    minimumTurnCount = 0,
+    sleepFn = sleep,
+    nowFn = () => Date.now(),
+    timeoutMs = 8000,
+    hiddenExtraTimeoutMs = 12000,
+    pollIntervalMs = 500,
+    stableSamplesRequired = 3
+} = {}) {
+    const startedAt = nowFn();
+    let stableSamples = 0;
+    let lastText = "";
+    let lastTurn = null;
+    let attempts = 0;
+
+    while (true) {
+        attempts += 1;
+
+        const visibility = getVisibilityDiagnostics(documentLike);
+        const turns = typeof extraction.collectTurns === "function"
+            ? extraction.collectTurns(documentLike)
+            : [];
+        const latestAssistantTurn = typeof extraction.findLastAssistantTurn === "function"
+            ? extraction.findLastAssistantTurn(documentLike)
+            : null;
+        const hasNewAssistantTurn = Boolean(latestAssistantTurn) && (
+            !previousAssistantTurn || latestAssistantTurn !== previousAssistantTurn
+        );
+        const hasEnoughTurns = turns.length >= minimumTurnCount;
+        const text = hasNewAssistantTurn && hasEnoughTurns
+            ? (extraction.extractAssistantTurnText(latestAssistantTurn) || "").trim()
+            : "";
+
+        if (text) {
+            if (text === lastText && latestAssistantTurn === lastTurn) {
+                stableSamples += 1;
+            } else {
+                stableSamples = 1;
+                lastText = text;
+                lastTurn = latestAssistantTurn;
+            }
+
+            if (stableSamples >= stableSamplesRequired) {
+                return {
+                    text,
+                    turn: latestAssistantTurn,
+                    attempts,
+                    stableSamples,
+                    turnCount: turns.length,
+                    visibility,
+                    timedOut: false
+                };
+            }
+        } else {
+            stableSamples = 0;
+            lastText = "";
+            lastTurn = latestAssistantTurn || null;
+        }
+
+        const maxWaitMs = timeoutMs + (
+            visibility.hidden || visibility.visibilityState !== "visible"
+                ? hiddenExtraTimeoutMs
+                : 0
+        );
+
+        if ((nowFn() - startedAt) >= maxWaitMs) {
+            return {
+                text: lastText,
+                turn: lastTurn,
+                attempts,
+                stableSamples,
+                turnCount: turns.length,
+                visibility,
+                timedOut: true
+            };
+        }
+
+        await sleepFn(pollIntervalMs);
+    }
+}
+
 async function automateChat(prompt) {
     // 1. Find the text area (now a ProseMirror contenteditable div)
     let textArea = null;
@@ -301,6 +427,7 @@ async function automateChat(prompt) {
     }
 
     console.log("Wingman ChatGPT: Found input element:", textArea.tagName, textArea.id);
+    logVisibility("before prompt insertion");
 
     // 2. Insert the text in chunks using execCommand (most reliable for ProseMirror)
     textArea.focus();
@@ -339,6 +466,7 @@ async function automateChat(prompt) {
 
     // Count existing turns before we submit
     const preExistingTurns = getTurns().length;
+    const previousAssistantTurn = chatGptExtraction.findLastAssistantTurn(document);
     console.log("Wingman ChatGPT: Pre-existing turns:", preExistingTurns);
 
     await sleep(500);
@@ -355,6 +483,8 @@ async function automateChat(prompt) {
         sendRetries--;
     }
     
+    logVisibility("before submit");
+
     if (sendBtn) {
         console.log("Wingman ChatGPT: Clicking send button...");
         sendBtn.click();
@@ -375,9 +505,11 @@ async function automateChat(prompt) {
         startTimeout--;
         const stopBtn = document.querySelector('button[aria-label="Stop streaming"]') 
                       || document.querySelector('[data-testid="stop-button"]');
+        const latestAssistantTurn = chatGptExtraction.findLastAssistantTurn(document);
+        const hasNewAssistantTurn = Boolean(latestAssistantTurn) && latestAssistantTurn !== previousAssistantTurn;
         
         const currentTurns = getTurns();
-        if (stopBtn || currentTurns.length > preExistingTurns) {
+        if (stopBtn || currentTurns.length > preExistingTurns || hasNewAssistantTurn) {
             generationStarted = true;
             console.log("Wingman ChatGPT: Generation started! (New turns detected or Stop button visible)");
         }
@@ -393,46 +525,46 @@ async function automateChat(prompt) {
     console.log("Wingman ChatGPT: Waiting for generation to finish...");
     let isGenerating = true;
     let timeout = 120;
+    let sawMeaningfulAssistantContent = false;
     while (isGenerating && timeout > 0) {
         await sleep(1000);
         timeout--;
         
         const stopBtn = document.querySelector('button[aria-label="Stop streaming"]') 
                       || document.querySelector('[data-testid="stop-button"]');
-        
-        // Ensure the stop button is truly gone for at least 2 seconds before we conclude
-        if (!stopBtn) {
-            await sleep(2000);
-            const stopBtnCheck = document.querySelector('button[aria-label="Stop streaming"]') 
-                               || document.querySelector('[data-testid="stop-button"]');
-            if (!stopBtnCheck) {
-                isGenerating = false;
-            }
+
+        const latestAssistantTurn = chatGptExtraction.findLastAssistantTurn(document);
+        const hasNewAssistantTurn = Boolean(latestAssistantTurn) && latestAssistantTurn !== previousAssistantTurn;
+        const latestAssistantText = hasNewAssistantTurn
+            ? chatGptExtraction.extractAssistantTurnText(latestAssistantTurn)
+            : "";
+
+        if (latestAssistantText) {
+            sawMeaningfulAssistantContent = true;
+        }
+
+        if (!stopBtn && hasNewAssistantTurn && sawMeaningfulAssistantContent) {
+            isGenerating = false;
         }
     }
 
-    // Give it a moment to finalize rendering (ChatGPT UI sometimes updates status markers for 1-2s)
-    await sleep(3500);
+    logVisibility("before extraction");
 
     console.log("Wingman ChatGPT: Generation complete. Extracting result...");
 
-    // 6. Extract the generated text using Universal + Marker-based methodology
-    const assistantSelectors = [
-        '[data-message-author-role="assistant"] .markdown',
-        '.agent-turn .markdown',
-        '.turn-assistant .markdown',
-        '.markdown.prose',
-        '.prose',
-        'article .markdown',
-        '[dir="auto"]',
-        '.whitespace-pre-wrap',
-        '.markdown'
-    ];
-
-    let extractedText = '';
+    let extractedText = "";
+    const stableAssistantResult = await waitForStableAssistantContent({
+        documentLike: document,
+        extraction: chatGptExtraction,
+        previousAssistantTurn,
+        minimumTurnCount: preExistingTurns + 1,
+        timeoutMs: 8000,
+        hiddenExtraTimeoutMs: 15000,
+        pollIntervalMs: document.hidden ? 1000 : 500,
+        stableSamplesRequired: 3
+    });
     const allTurns = getTurns();
-    
-    // -- DIAGNOSTICS --
+
     console.log(`Wingman Diagnostic: Final count of turns: ${allTurns.length}`);
     console.log("Wingman ChatGPT: Recent turn summaries", allTurns.slice(-5).map((turn, index) => ({
         index: allTurns.length - Math.min(5, allTurns.length) + index,
@@ -441,63 +573,23 @@ async function automateChat(prompt) {
         preview: (turn.innerText || turn.textContent || "").trim().slice(0, 140)
     })));
 
-    // Strategy 1: Look for assistant content within known turns from the back
-    console.log("Wingman ChatGPT: Primary extraction attempt starting...");
-    for (const selector of assistantSelectors) {
-        for (let i = allTurns.length - 1; i >= 0; i--) {
-            const turn = allTurns[i];
-            const role = turn.getAttribute?.("data-message-author-role") || "";
-            const isAssistantTurn = role === "assistant" ||
-                turn.classList.contains("agent-turn") ||
-                turn.querySelector?.('[data-message-author-role="assistant"]');
-
-            if (!isAssistantTurn) {
-                continue;
-            }
-
-            const contentCandidates = turn.querySelectorAll(selector);
-            
-            // If the turn itself matches the selector, check it too
-            const candidates = turn.matches?.(selector) ? [turn, ...contentCandidates] : [...contentCandidates];
-            
-            for (const el of candidates) {
-                const rawText = (el.innerText || el.textContent || "").trim();
-                const msgText = chatGptExtraction.stripStatusMarkers(rawText);
-
-                if (chatGptExtraction.shouldAcceptPrimaryExtractionCandidate({
-                    text: msgText,
-                    isAssistantTurn: true
-                })) {
-                    extractedText = msgText;
-                    console.log(`Wingman ChatGPT: Success! Extracted ${extractedText.length} chars from turn ${i} using selector: ${selector}`);
-                    break;
-                }
-            }
-            if (extractedText) break;
-        }
-        if (extractedText) break;
+    if (stableAssistantResult.text) {
+        extractedText = stableAssistantResult.text;
+        console.log("Wingman ChatGPT: Stable assistant extraction succeeded.", {
+            extractedLength: extractedText.length,
+            attempts: stableAssistantResult.attempts,
+            stableSamples: stableAssistantResult.stableSamples,
+            hidden: stableAssistantResult.visibility.hidden
+        });
     }
 
-    // Strategy 2: Emergency Response - Fallback to any assistant turn's full text
     if (!extractedText) {
         console.warn("Wingman ChatGPT: Primary extraction failed. Using last-resort turn recovery.");
-        for (let i = allTurns.length - 1; i >= 0; i--) {
-            const turn = allTurns[i];
-            const role = turn.getAttribute('data-message-author-role');
-            const isAgent = turn.classList.contains('agent-turn');
-            const rawTurnText = chatGptExtraction.stripStatusMarkers(turn?.innerText || turn?.textContent || "");
-            console.log("Wingman ChatGPT: last assistant raw text length", rawTurnText.length);
-            const treeWalkerText = chatGptExtraction.extractMeaningfulTextFromTurn?.(turn) || "";
-            console.log("Wingman ChatGPT: tree-walker fallback preview", treeWalkerText.slice(0, 300));
-            const turnText = chatGptExtraction.extractAssistantTurnText(turn);
-            
-            // If it's an assistant/agent turn, and has some length
-            if ((role === 'assistant' || isAgent) && turnText) {
-                extractedText = turnText;
-                console.log(`Wingman ChatGPT: Emergency recovery! Took full innerText from turn ${i} (role=${role}, agent=${isAgent}).`);
-                break;
-            }
-        }
+        logVisibility("primary extraction failed");
+        const latestAssistantTurn = chatGptExtraction.findLastAssistantTurn(document);
+        extractedText = latestAssistantTurn
+            ? chatGptExtraction.extractAssistantTurnText(latestAssistantTurn)
+            : "";
     }
 
     if (!extractedText) {
@@ -523,13 +615,17 @@ async function automateChat(prompt) {
 
 if (typeof globalThis !== "undefined") {
     globalThis.WingmanChatGptRuntime = {
-        createFallbackChatGptExtraction
+        createFallbackChatGptExtraction,
+        getVisibilityDiagnostics,
+        waitForStableAssistantContent
     };
 }
 
 if (typeof module !== "undefined" && module.exports) {
     module.exports = {
-        createFallbackChatGptExtraction
+        createFallbackChatGptExtraction,
+        getVisibilityDiagnostics,
+        waitForStableAssistantContent
     };
 }
 
@@ -537,6 +633,7 @@ if (typeof module !== "undefined" && module.exports) {
 if (typeof window !== "undefined") {
     window.addEventListener('load', () => {
         console.log("Wingman ChatGPT: Page loaded. Automation waiting...");
+        logVisibility("after page load");
         setTimeout(checkTasks, 2500);
     });
 }

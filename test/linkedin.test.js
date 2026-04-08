@@ -389,6 +389,61 @@ test("linkedin content helpers tolerate missing reaction metadata without throwi
     });
 });
 
+test("linkedin content helpers detect reaction controls when className is object-like but class attribute is present", () => {
+    const scriptPath = path.join(__dirname, "..", "src", "linkedin.js");
+    const scriptSource = fs.readFileSync(scriptPath, "utf8");
+    const { context } = createLinkedInScriptContext();
+
+    vm.runInNewContext(scriptSource, context, { filename: "src/linkedin.js" });
+
+    assert.equal(
+        context.WingmanLinkedInContentInternals.looksLikeReactionControl({
+            innerText: undefined,
+            textContent: undefined,
+            className: { baseVal: "feed-shared-social-action-bar__reaction-button" },
+            getAttribute(name) {
+                if (name === "aria-label") {
+                    return undefined;
+                }
+
+                if (name === "class") {
+                    return "feed-shared-social-action-bar__reaction-button";
+                }
+
+                return undefined;
+            }
+        }),
+        true
+    );
+});
+
+test("linkedin content helpers do not emit reaction probe debug logs during matching", () => {
+    const scriptPath = path.join(__dirname, "..", "src", "linkedin.js");
+    const scriptSource = fs.readFileSync(scriptPath, "utf8");
+    const { context } = createLinkedInScriptContext();
+    const logs = [];
+
+    context.console.log = (...args) => {
+        logs.push(args);
+    };
+
+    vm.runInNewContext(scriptSource, context, { filename: "src/linkedin.js" });
+
+    context.WingmanLinkedInContentInternals.looksLikeReactionControl({
+        innerText: "Like",
+        textContent: "Like",
+        className: "",
+        getAttribute(name) {
+            return name === "aria-label" ? "Reaction button state" : undefined;
+        }
+    });
+
+    assert.equal(
+        logs.some(([message]) => message === "Wingman reaction probe"),
+        false
+    );
+});
+
 test("linkedin content helpers keep collecting post containers when some controls have undefined fields", () => {
     const scriptPath = path.join(__dirname, "..", "src", "linkedin.js");
     const scriptSource = fs.readFileSync(scriptPath, "utf8");

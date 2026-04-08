@@ -1,7 +1,11 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { createFallbackChatGptExtraction } = require("../src/chatgpt.js");
+const {
+    createFallbackChatGptExtraction,
+    getVisibilityDiagnostics,
+    waitForStableAssistantContent
+} = require("../src/chatgpt.js");
 
 test("createFallbackChatGptExtraction can recover rendered option blocks without external helper state", () => {
     const extraction = createFallbackChatGptExtraction();
@@ -72,4 +76,151 @@ test("createFallbackChatGptExtraction accepts meaningful assistant prose without
         text,
         isAssistantTurn: true
     }), true);
+});
+
+test("getVisibilityDiagnostics reports hidden popup state", () => {
+    const documentLike = {
+        visibilityState: "hidden",
+        hidden: true,
+        hasFocus() {
+            return false;
+        }
+    };
+
+    assert.deepEqual(getVisibilityDiagnostics(documentLike), {
+        visibilityState: "hidden",
+        hasFocus: false,
+        hidden: true
+    });
+});
+
+test("waitForStableAssistantContent waits until assistant text stabilizes across repeated checks", async () => {
+    const snapshots = [
+        "",
+        "Searching",
+        [
+            "option 1",
+            "```text",
+            "A real comment appears here",
+            "```"
+        ].join("\n"),
+        [
+            "option 1",
+            "```text",
+            "A real comment appears here",
+            "```"
+        ].join("\n"),
+        [
+            "option 1",
+            "```text",
+            "A real comment appears here",
+            "```"
+        ].join("\n")
+    ];
+    let attempt = 0;
+    let now = 0;
+    const turn = {};
+
+    const result = await waitForStableAssistantContent({
+        documentLike: {
+            visibilityState: "visible",
+            hidden: false,
+            hasFocus() {
+                return true;
+            }
+        },
+        extraction: {
+            findLastAssistantTurn() {
+                return turn;
+            },
+            extractAssistantTurnText() {
+                const index = Math.min(attempt, snapshots.length - 1);
+                const value = snapshots[index];
+                attempt += 1;
+                return value;
+            }
+        },
+        sleepFn: async () => {},
+        nowFn: () => {
+            now += 100;
+            return now;
+        },
+        timeoutMs: 800,
+        hiddenExtraTimeoutMs: 0,
+        pollIntervalMs: 1,
+        stableSamplesRequired: 2
+    });
+
+    assert.equal(result.text, snapshots[2]);
+    assert.equal(result.turn, turn);
+    assert.equal(result.stableSamples >= 2, true);
+});
+
+test("waitForStableAssistantContent keeps retrying longer when the page is hidden", async () => {
+    const snapshots = [
+        "",
+        "",
+        "",
+        [
+            "option 1",
+            "```text",
+            "Hidden mode finally produced a stable answer",
+            "```"
+        ].join("\n"),
+        [
+            "option 1",
+            "```text",
+            "Hidden mode finally produced a stable answer",
+            "```"
+        ].join("\n"),
+        [
+            "option 1",
+            "```text",
+            "Hidden mode finally produced a stable answer",
+            "```"
+        ].join("\n")
+    ];
+    let attempt = 0;
+    let now = 0;
+
+    const result = await waitForStableAssistantContent({
+        documentLike: {
+            visibilityState: "hidden",
+            hidden: true,
+            hasFocus() {
+                return false;
+            }
+        },
+        extraction: {
+            findLastAssistantTurn() {
+                return {};
+            },
+            extractAssistantTurnText() {
+                const index = Math.min(attempt, snapshots.length - 1);
+                const value = snapshots[index];
+                attempt += 1;
+                return value;
+            }
+        },
+        sleepFn: async () => {},
+        nowFn: () => {
+            now += 1000;
+            return now;
+        },
+        timeoutMs: 2500,
+        hiddenExtraTimeoutMs: 5000,
+        pollIntervalMs: 1,
+        stableSamplesRequired: 2
+    });
+
+    assert.equal(
+        result.text,
+        [
+            "option 1",
+            "```text",
+            "Hidden mode finally produced a stable answer",
+            "```"
+        ].join("\n")
+    );
+    assert.equal(attempt >= 5, true);
 });

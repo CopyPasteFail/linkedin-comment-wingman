@@ -5,6 +5,7 @@ const {
     collectTurns,
     extractDocumentResponseText,
     extractAssistantTurnText,
+    findLastAssistantTurn,
     isLikelyPromptTemplate,
     shouldAcceptAssistantFallback,
     shouldAcceptPrimaryExtractionCandidate,
@@ -319,4 +320,101 @@ test("extractAssistantTurnText falls back to visible text nodes when selectors m
             "That makes the point feel earned instead of generic."
         ].join("\n")
     );
+});
+
+test("findLastAssistantTurn returns the newest assistant turn instead of scanning the whole document", () => {
+    const olderAssistantTurn = {
+        getAttribute(name) {
+            return name === "data-message-author-role" ? "assistant" : null;
+        },
+        className: "turn-assistant",
+        classList: {
+            contains(className) {
+                return className === "turn-assistant";
+            }
+        },
+        closest() {
+            return null;
+        }
+    };
+    const userTurn = {
+        getAttribute(name) {
+            return name === "data-message-author-role" ? "user" : null;
+        },
+        className: "turn-user",
+        classList: {
+            contains() {
+                return false;
+            }
+        },
+        closest() {
+            return null;
+        }
+    };
+    const newestAssistantTurn = {
+        getAttribute(name) {
+            return name === "data-message-author-role" ? "assistant" : null;
+        },
+        className: "turn-assistant",
+        classList: {
+            contains(className) {
+                return className === "turn-assistant";
+            }
+        },
+        closest() {
+            return null;
+        }
+    };
+    const documentLike = {
+        querySelectorAll(selector) {
+            if (selector === '[data-message-author-role]') {
+                return [olderAssistantTurn, userTurn, newestAssistantTurn];
+            }
+
+            if (selector === '.turn-assistant') {
+                return [olderAssistantTurn, newestAssistantTurn];
+            }
+
+            return [];
+        }
+    };
+
+    assert.equal(findLastAssistantTurn(documentLike), newestAssistantTurn);
+});
+
+test("extractAssistantTurnText prefers structured content inside the assistant turn before raw outer text", () => {
+    const codeNodes = [
+        { innerText: "First real option\nwith detail" },
+        { innerText: "Second real option\nwith detail" }
+    ];
+    const turn = {
+        innerText: [
+            "Copy",
+            "Share",
+            "The raw turn text is noisy and should not win when code blocks exist."
+        ].join("\n"),
+        textContent: [
+            "Copy",
+            "Share",
+            "The raw turn text is noisy and should not win when code blocks exist."
+        ].join("\n"),
+        querySelectorAll(selector) {
+            if (selector === "pre code" || selector === "pre" || selector === "[data-testid*=\"code\"]" || selector === "code") {
+                return codeNodes;
+            }
+            return [];
+        }
+    };
+
+    assert.equal(extractAssistantTurnText(turn), [
+        "option 1",
+        "```text",
+        "First real option\nwith detail",
+        "```",
+        "",
+        "option 2",
+        "```text",
+        "Second real option\nwith detail",
+        "```"
+    ].join("\n"));
 });
