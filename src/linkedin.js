@@ -9,9 +9,10 @@
     const processedButtons = new WeakSet();
     const runtimeGuards = globalThis.WingmanRuntimeGuards || {
         createRuntimeUnavailableError: () => new Error("Wingman extension runtime is unavailable."),
+        isRuntimeAvailable: (runtime) => Boolean(runtime?.id && typeof runtime?.sendMessage === "function"),
         isExtensionContextInvalidated: (error) => Boolean(error?.message) && /extension context invalidated/i.test(error.message),
         safeSendRuntimeMessage: (runtime, message, callback) => {
-            if (!runtime?.sendMessage) {
+            if (!runtime?.id || !runtime?.sendMessage) {
                 return { ok: false, error: new Error("Wingman extension runtime is unavailable.") };
             }
 
@@ -49,6 +50,7 @@
 
     let pollingInterval = null;
     let extensionReloadNoticeShown = false;
+    let extensionRefreshRequired = false;
 
     const WINGMAN_DEBUG = globalThis.WINGMAN_DEBUG === true;
 
@@ -317,7 +319,9 @@
     console.error(`Wingman: ${actionDescription} failed:`, error?.message || error);
     clearActiveResults();
 
-    if (runtimeGuards.isExtensionContextInvalidated(error)) {
+    if (runtimeGuards.isExtensionContextInvalidated(error) || !runtimeGuards.isRuntimeAvailable(chrome?.runtime)) {
+        extensionRefreshRequired = true;
+        markWingmanButtonsRefreshRequired();
         if (!extensionReloadNoticeShown) {
             extensionReloadNoticeShown = true;
             alert("Wingman was reloaded or updated. Refresh this LinkedIn tab and try again.");
@@ -326,6 +330,20 @@
     }
 
     alert(`Wingman couldn't ${actionDescription}: ${error?.message || "Unknown error"}`);
+    }
+
+    function markWingmanButtonsRefreshRequired() {
+    document.querySelectorAll(".wingman-btn").forEach((button) => {
+        button.classList.remove("loading");
+        button.classList.add("wingman-btn-stale");
+        button.disabled = true;
+        button.innerHTML = `<span class="wingman-btn-icon">↻</span> Refresh tab`;
+        button.setAttribute("title", "Refresh this LinkedIn tab to reconnect Wingman.");
+    });
+    }
+
+    function shouldBlockGenerationForRuntime(runtime) {
+    return extensionRefreshRequired || !runtimeGuards.isRuntimeAvailable(runtime);
     }
 
     function injectWingmanButtons() {
@@ -445,6 +463,14 @@
         textLength: postText.length,
         textPreview: postText.slice(0, 180)
     });
+
+    if (shouldBlockGenerationForRuntime(chrome?.runtime)) {
+        handleRuntimeMessagingFailure(
+            runtimeGuards.createRuntimeUnavailableError(),
+            "open ChatGPT"
+        );
+        return;
+    }
 
     clearActiveResults();
     setActivePost(postContainer, actionBar, btn);
@@ -686,12 +712,30 @@
     );
     }
 
-    function buildResultsContainer(titleText) {
+    function getResultsHintText(optionCount) {
+    if (optionCount > 2) {
+        return `${optionCount} comments below - scroll for more`;
+    }
+
+    if (optionCount === 1) {
+        return "1 comment - click to copy";
+    }
+
+    return "Click a comment to copy";
+    }
+
+    function buildResultsContainer(titleText, optionCount = 0) {
     const resultsContainer = document.createElement("section");
     resultsContainer.className = "wingman-results-container wingman-results-inline";
+    if (optionCount > 2) {
+        resultsContainer.classList.add("wingman-results-many");
+    }
 
     const header = document.createElement("div");
     header.className = "wingman-header";
+
+    const headerTextGroup = document.createElement("div");
+    headerTextGroup.className = "wingman-header-text-group";
 
     const title = document.createElement("span");
     title.className = "wingman-header-title";
@@ -699,13 +743,47 @@
 
     const hint = document.createElement("span");
     hint.className = "wingman-header-hint";
-    hint.textContent = "Click a comment to copy";
+    hint.textContent = getResultsHintText(optionCount);
 
-    header.appendChild(title);
-    header.appendChild(hint);
+    headerTextGroup.appendChild(title);
+    headerTextGroup.appendChild(hint);
+    header.appendChild(headerTextGroup);
     resultsContainer.appendChild(header);
 
+    const optionsList = document.createElement("div");
+    optionsList.className = "wingman-options-list";
+    resultsContainer.appendChild(optionsList);
+
     return resultsContainer;
+    }
+
+    function createOptionElement(optionText) {
+    const optionElement = document.createElement("div");
+    optionElement.className = "wingman-option";
+    optionElement.dataset.wingmanOption = "true";
+    optionElement.tabIndex = 0;
+
+    const optionTextElement = document.createElement("div");
+    optionTextElement.className = "wingman-option-text";
+    optionTextElement.textContent = optionText;
+
+    const copyOption = () => {
+        navigator.clipboard.writeText(optionText).then(() => {
+            optionElement.classList.add("wingman-option-copied");
+            setTimeout(() => optionElement.classList.remove("wingman-option-copied"), 2000);
+        });
+    };
+
+    optionElement.appendChild(optionTextElement);
+    optionElement.addEventListener("click", copyOption);
+    optionElement.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            copyOption();
+        }
+    });
+
+    return optionElement;
     }
 
     function renderResultsInContainer(postContainer, actionBar, text) {
@@ -728,20 +806,12 @@
         rawPreview: text.slice(0, 220)
     });
 
-    const resultsContainer = buildResultsContainer("Generated comments");
+    const resultsContainer = buildResultsContainer("Generated comments", options.length);
+
+    const optionsList = resultsContainer.querySelector(".wingman-options-list");
 
     options.forEach((optionText) => {
-        const optionElement = document.createElement("button");
-        optionElement.type = "button";
-        optionElement.className = "wingman-option";
-        optionElement.textContent = optionText;
-        optionElement.addEventListener("click", () => {
-            navigator.clipboard.writeText(optionText).then(() => {
-                optionElement.classList.add("wingman-option-copied");
-                setTimeout(() => optionElement.classList.remove("wingman-option-copied"), 2000);
-            });
-        });
-        resultsContainer.appendChild(optionElement);
+        optionsList.appendChild(createOptionElement(optionText));
     });
 
     activeWingmanState.postContainer = postContainer;
@@ -811,6 +881,9 @@
         looksLikeReactionControl,
         collectPostContainers,
         scoreFooterCandidate,
-        findBestFooterCandidate
+        findBestFooterCandidate,
+        getResultsHintText,
+        createOptionElement,
+        shouldBlockGenerationForRuntime
     };
 })();

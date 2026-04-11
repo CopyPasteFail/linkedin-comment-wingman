@@ -36,18 +36,35 @@ function createLinkedInScriptContext() {
             return null;
         },
         createElement() {
-            return {
+            const listeners = new Map();
+            const element = {
+                tagName: "DIV",
                 className: "",
                 dataset: {},
                 style: {},
-                appendChild() {},
-                addEventListener() {},
+                children: [],
+                attributes: {},
+                appendChild(child) {
+                    this.children.push(child);
+                    return child;
+                },
+                addEventListener(eventName, listener) {
+                    listeners.set(eventName, listener);
+                },
+                setAttribute(name, value) {
+                    this.attributes[name] = value;
+                },
+                getAttribute(name) {
+                    return this.attributes[name] ?? null;
+                },
                 classList: {
                     add() {},
                     remove() {},
                     toggle() {}
                 }
             };
+
+            return element;
         }
     };
 
@@ -444,6 +461,62 @@ test("linkedin content helpers do not emit reaction probe debug logs during matc
     );
 });
 
+test("linkedin content helpers describe when the side panel contains more comments than fit at once", () => {
+    const scriptPath = path.join(__dirname, "..", "src", "linkedin.js");
+    const scriptSource = fs.readFileSync(scriptPath, "utf8");
+    const { context } = createLinkedInScriptContext();
+
+    vm.runInNewContext(scriptSource, context, { filename: "src/linkedin.js" });
+
+    assert.equal(
+        context.WingmanLinkedInContentInternals.getResultsHintText(8),
+        "8 comments below - scroll for more"
+    );
+    assert.equal(
+        context.WingmanLinkedInContentInternals.getResultsHintText(2),
+        "Click a comment to copy"
+    );
+});
+
+test("linkedin content helpers build suggestion cards as plain blocks with button semantics", () => {
+    const scriptPath = path.join(__dirname, "..", "src", "linkedin.js");
+    const scriptSource = fs.readFileSync(scriptPath, "utf8");
+    const { context } = createLinkedInScriptContext();
+
+    vm.runInNewContext(scriptSource, context, { filename: "src/linkedin.js" });
+
+    const optionElement = context.WingmanLinkedInContentInternals.createOptionElement("Example comment");
+
+    assert.equal(optionElement.tagName, "DIV");
+    assert.equal(optionElement.getAttribute("role"), null);
+    assert.equal(optionElement.dataset.wingmanOption, "true");
+    assert.equal(optionElement.tabIndex, 0);
+    assert.equal(optionElement.children.length, 1);
+    assert.equal(optionElement.children[0].className, "wingman-option-text");
+});
+
+test("linkedin stylesheet keeps inline suggestion lists scrollable under the post", () => {
+    const cssPath = path.join(__dirname, "..", "src", "linkedin.css");
+    const cssSource = fs.readFileSync(cssPath, "utf8");
+
+    assert.match(
+        cssSource,
+        /\.wingman-results-inline\s*\{[\s\S]*max-height:\s*min\(60vh,\s*520px\);/m
+    );
+    assert.match(
+        cssSource,
+        /\.wingman-results-inline\s+\.wingman-options-list\s*\{[\s\S]*overflow-y:\s*auto;[\s\S]*max-height:\s*calc\(min\(60vh,\s*520px\)\s*-\s*72px\);/m
+    );
+    assert.match(
+        cssSource,
+        /\.wingman-option\s*\{[\s\S]*flex:\s*0 0 auto;/m
+    );
+    assert.match(
+        cssSource,
+        /\.wingman-option-text\s*\{[\s\S]*flex:\s*0 0 auto;/m
+    );
+});
+
 test("linkedin content helpers keep collecting post containers when some controls have undefined fields", () => {
     const scriptPath = path.join(__dirname, "..", "src", "linkedin.js");
     const scriptSource = fs.readFileSync(scriptPath, "utf8");
@@ -522,4 +595,21 @@ test("linkedin content helpers keep collecting post containers when some control
         const roots = context.WingmanLinkedInContentInternals.collectPostContainers();
         assert.equal(roots.length, 1);
     });
+});
+
+test("linkedin content helpers block generation when the extension runtime is unavailable", () => {
+    const scriptPath = path.join(__dirname, "..", "src", "linkedin.js");
+    const scriptSource = fs.readFileSync(scriptPath, "utf8");
+    const { context } = createLinkedInScriptContext();
+
+    vm.runInNewContext(scriptSource, context, { filename: "src/linkedin.js" });
+
+    assert.equal(
+        context.WingmanLinkedInContentInternals.shouldBlockGenerationForRuntime(null),
+        true
+    );
+    assert.equal(
+        context.WingmanLinkedInContentInternals.shouldBlockGenerationForRuntime({ id: "wingman", sendMessage() {} }),
+        false
+    );
 });

@@ -2,6 +2,7 @@
     --wm-blue: #0a66c2;
     --wm-blue-hover: #004182;
     --wm-blue-light: rgba(10, 102, 194, 0.12);
+    --wm-blue-soft: rgba(10, 102, 194, 0.08);
     --wm-text: #191919;
     --wm-text-secondary: #666666;
     --wm-bg: #ffffff;
@@ -11,6 +12,14 @@
     --wm-shadow-md: 0 18px 48px rgba(15, 23, 42, 0.16);
     --wm-radius: 14px;
     --wm-transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.wingman-results-container,
+.wingman-results-container *,
+.wingman-option,
+.wingman-option::before,
+.wingman-option::after {
+    box-sizing: border-box;
 }
 
 .wingman-btn {
@@ -36,6 +45,14 @@
 .wingman-btn:hover {
     background-color: var(--wm-blue-light);
     color: var(--wm-blue);
+}
+
+.wingman-btn:disabled,
+.wingman-btn.wingman-btn-stale {
+    cursor: not-allowed;
+    opacity: 0.72;
+    color: var(--wm-text-secondary);
+    background: rgba(127, 127, 127, 0.08);
 }
 
 .wingman-btn-active {
@@ -94,19 +111,51 @@
     border-radius: var(--wm-radius);
     box-shadow: var(--wm-shadow-sm);
     animation: wm-fade-up 0.22s ease-out;
-    overflow-y: auto;
+    overflow: hidden;
     overscroll-behavior: contain;
 }
 
 .wingman-results-inline {
     width: 100%;
+    max-height: min(60vh, 520px);
+}
+
+.wingman-results-inline .wingman-options-list {
+    overflow-y: auto;
+    max-height: calc(min(60vh, 520px) - 72px);
+    padding-right: 6px;
+    scrollbar-gutter: stable;
+}
+
+.wingman-results-inline .wingman-options-list::-webkit-scrollbar {
+    width: 10px;
+}
+
+.wingman-results-inline .wingman-options-list::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--wm-border) 78%, var(--wm-blue) 22%);
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+}
+
+.wingman-results-inline .wingman-options-list::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.wingman-options-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-height: 0;
 }
 
 .wingman-results-side {
     margin: 0;
-    padding: 16px;
+    padding: 18px;
     z-index: 2147483646;
     box-shadow: var(--wm-shadow-md);
+    border-radius: 18px;
+    background: color-mix(in srgb, var(--wm-bg-secondary) 96%, white 4%);
 }
 
 .wingman-header {
@@ -114,6 +163,18 @@
     align-items: baseline;
     justify-content: space-between;
     gap: 10px;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    padding-bottom: 4px;
+}
+
+.wingman-header-text-group {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    min-width: 0;
 }
 
 .wingman-header-title {
@@ -127,17 +188,24 @@
 .wingman-header-hint {
     color: var(--wm-text-secondary);
     font-size: 12px;
-    white-space: nowrap;
+    line-height: 1.4;
 }
 
 .wingman-option {
-    appearance: none;
-    -webkit-appearance: none;
     width: 100%;
-    display: block;
+    display: flex !important;
+    align-items: flex-start;
+    justify-content: flex-start;
+    flex-direction: column;
+    flex: 0 0 auto;
     font: inherit;
     font-weight: 400;
-    min-height: 0;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    block-size: auto !important;
+    min-block-size: 0 !important;
+    max-block-size: none !important;
     border: 1px solid rgba(10, 102, 194, 0.08);
     border-radius: 12px;
     background: var(--wm-bg);
@@ -148,10 +216,24 @@
     cursor: pointer;
     transition: var(--wm-transition);
     text-align: left;
-    white-space: pre-line;
-    overflow: visible;
+    white-space: normal;
+    overflow: hidden;
     box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
     position: relative;
+}
+
+.wingman-option-text {
+    display: block !important;
+    flex: 0 0 auto;
+    width: 100%;
+    margin: 0;
+    font: inherit;
+    color: inherit;
+    text-align: inherit;
+    line-height: inherit;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 
 .wingman-option:hover {
@@ -206,6 +288,67 @@
     color: var(--wm-text-secondary);
 }
 
+.wingman-results-side .wingman-header {
+    align-items: flex-start;
+}
+
+.wingman-results-side .wingman-header-title {
+    font-size: 13px;
+    letter-spacing: 0.04em;
+}
+
+.wingman-results-side .wingman-header-hint {
+    white-space: normal;
+    font-size: 13px;
+}
+
+.wingman-results-side .wingman-options-list {
+    gap: 14px;
+    overflow-y: auto;
+    padding-right: 6px;
+    scrollbar-gutter: stable;
+}
+
+.wingman-results-side.wingman-results-many .wingman-options-list {
+    mask-image: linear-gradient(to bottom, #000 0%, #000 calc(100% - 18px), transparent 100%);
+}
+
+.wingman-results-side .wingman-options-list::-webkit-scrollbar {
+    width: 10px;
+}
+
+.wingman-results-side .wingman-options-list::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--wm-border) 78%, var(--wm-blue) 22%);
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+}
+
+.wingman-results-side .wingman-options-list::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.wingman-results-side .wingman-option {
+    padding: 18px 20px;
+    border-radius: 16px;
+    border-color: color-mix(in srgb, var(--wm-border) 70%, transparent 30%);
+    background:
+        linear-gradient(180deg, color-mix(in srgb, var(--wm-bg) 92%, white 8%) 0%, var(--wm-bg) 100%);
+    line-height: 1.65;
+    box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+}
+
+.wingman-results-side .wingman-option:hover {
+    border-color: rgba(10, 102, 194, 0.28);
+    background:
+        linear-gradient(180deg, color-mix(in srgb, var(--wm-bg) 86%, var(--wm-blue-soft) 14%) 0%, var(--wm-bg) 100%);
+}
+
+.wingman-results-side .wingman-option-copied::after {
+    top: 14px;
+    right: 16px;
+}
+
 @keyframes wm-fade-up {
     from {
         opacity: 0;
@@ -226,6 +369,7 @@
         --wm-text: #e6edf3;
         --wm-text-secondary: #a8b3be;
         --wm-blue-light: rgba(112, 181, 249, 0.16);
+        --wm-blue-soft: rgba(112, 181, 249, 0.1);
         --wm-shadow-sm: 0 8px 24px rgba(0, 0, 0, 0.2);
         --wm-shadow-md: 0 18px 48px rgba(0, 0, 0, 0.35);
     }
@@ -239,6 +383,7 @@ html[class*="dark"] {
     --wm-text: #e6edf3;
     --wm-text-secondary: #a8b3be;
     --wm-blue-light: rgba(112, 181, 249, 0.16);
+    --wm-blue-soft: rgba(112, 181, 249, 0.1);
     --wm-shadow-sm: 0 8px 24px rgba(0, 0, 0, 0.2);
     --wm-shadow-md: 0 18px 48px rgba(0, 0, 0, 0.35);
 }

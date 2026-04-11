@@ -4,12 +4,16 @@ function createRuntimeUnavailableError() {
     return new Error("Wingman extension runtime is unavailable.");
 }
 
+function isRuntimeAvailable(runtime) {
+    return Boolean(runtime?.id && typeof runtime?.sendMessage === "function");
+}
+
 function isExtensionContextInvalidated(error) {
     return Boolean(error?.message) && /extension context invalidated/i.test(error.message);
 }
 
 function safeSendRuntimeMessage(runtime, message, callback) {
-    if (!runtime?.sendMessage) {
+    if (!isRuntimeAvailable(runtime)) {
         return { ok: false, error: createRuntimeUnavailableError() };
     }
 
@@ -23,6 +27,7 @@ function safeSendRuntimeMessage(runtime, message, callback) {
 
 const wingmanRuntimeGuards = {
     createRuntimeUnavailableError,
+    isRuntimeAvailable,
     isExtensionContextInvalidated,
     safeSendRuntimeMessage
 };

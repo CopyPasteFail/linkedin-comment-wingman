@@ -5,6 +5,7 @@ const runtimeGuards = require("../src/runtime-guards");
 
 test("safeSendRuntimeMessage captures extension context invalidation errors", () => {
     const runtime = {
+        id: "wingman",
         sendMessage() {
             throw new Error("Extension context invalidated.");
         }
@@ -22,4 +23,13 @@ test("safeSendRuntimeMessage reports a missing runtime as unavailable", () => {
 
     assert.equal(result.ok, false);
     assert.match(result.error.message, /extension runtime is unavailable/i);
+});
+
+test("isRuntimeAvailable reports false when the extension runtime id is missing", () => {
+    assert.equal(runtimeGuards.isRuntimeAvailable({ sendMessage() {} }), false);
+    assert.equal(runtimeGuards.isRuntimeAvailable({ id: "", sendMessage() {} }), false);
+});
+
+test("isRuntimeAvailable reports true when runtime id and messaging are present", () => {
+    assert.equal(runtimeGuards.isRuntimeAvailable({ id: "wingman", sendMessage() {} }), true);
 });
