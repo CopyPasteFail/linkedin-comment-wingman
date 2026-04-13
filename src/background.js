@@ -40,7 +40,7 @@ const backgroundUtils = globalThis.WingmanBackgroundUtils || {
     );
 
     return {
-      url: "https://chatgpt.com/?model=gpt-4",
+      url: "https://chatgpt.com/",
       type: "popup",
       width,
       height,
@@ -271,8 +271,7 @@ For each comment:
 - always use line breaks instead of periods
 - periods may be used only if necessary for readability
 - maximum 1 emoji
-- only the first sentence may start with a capital letter
-- keep the rest lowercase unless capitalization is required
+- keep the all the text lowercase unless capitalization is required
 
 
 # Output format
