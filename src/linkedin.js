@@ -337,13 +337,100 @@
         button.classList.remove("loading");
         button.classList.add("wingman-btn-stale");
         button.disabled = true;
-        button.innerHTML = `<span class="wingman-btn-icon">↻</span> Refresh tab`;
+        button.innerHTML = `${buildGlyphIconHtml("↻")} Refresh tab`;
         button.setAttribute("title", "Refresh this LinkedIn tab to reconnect Wingman.");
     });
     }
 
     function shouldBlockGenerationForRuntime(runtime) {
     return extensionRefreshRequired || !runtimeGuards.isRuntimeAvailable(runtime);
+    }
+
+    function getLogoUrl() {
+    try {
+        return chrome.runtime.getURL("assets/icon.svg");
+    } catch (_e) {
+        return "";
+    }
+    }
+
+    function buildLogoIconHtml() {
+    const url = getLogoUrl();
+    return `<img class="wingman-btn-icon wingman-btn-logo" src="${url}" alt="" draggable="false">`;
+    }
+
+    function buildGlyphIconHtml(glyph) {
+    return `<span class="wingman-btn-icon">${glyph}</span>`;
+    }
+
+    function detectActionBarMode(actionBar) {
+    if (!actionBar) return "inline";
+    const sibling = Array.from(actionBar.querySelectorAll("button, [role='button']"))
+        .find((el) => !el.classList.contains("wingman-btn") &&
+                      !el.classList.contains("wingman-btn-expand") &&
+                      !el.classList.contains("wingman-instructions-go") &&
+                      !el.classList.contains("wingman-instructions-cancel"));
+    if (!sibling) return "inline";
+
+    let textRect = null;
+    try {
+        const walker = document.createTreeWalker(sibling, NodeFilter.SHOW_TEXT);
+        let node;
+        while ((node = walker.nextNode())) {
+            const text = (node.textContent || "").trim();
+            if (text.length < 2) continue;
+            const range = document.createRange();
+            range.selectNode(node);
+            const r = range.getBoundingClientRect();
+            if (r && r.width > 1 && r.height > 1) { textRect = r; break; }
+        }
+    } catch (_e) { /* fall through */ }
+
+    if (!textRect) return "icon-only";
+
+    const iconEl = sibling.querySelector("svg, img");
+    const iconRect = iconEl?.getBoundingClientRect?.();
+
+    if (iconRect && iconRect.width > 0 && iconRect.height > 0) {
+        // Text below the icon -> stacked. Otherwise inline.
+        if (textRect.y >= iconRect.y + iconRect.height - 2) return "stacked";
+        return "inline";
+    }
+
+    const rect = sibling.getBoundingClientRect?.();
+    if (rect && rect.height > rect.width) return "stacked";
+    return "inline";
+    }
+
+    function buildMainBtnHtml(mode, iconHtml) {
+    if (mode === "icon-only") return iconHtml;
+    return `${iconHtml}<span class="wingman-btn-label">Wingman</span>`;
+    }
+
+    function expandInstructions(split) {
+    if (!split) return;
+    split.classList.add("wingman-split-expanded");
+    const instructions = split._wingmanInstructions;
+    if (instructions) instructions.classList.add("wingman-instructions-open");
+    const input = instructions?.querySelector(".wingman-instructions-input");
+    if (input) {
+        window.setTimeout(() => input.focus(), 0);
+    }
+    }
+
+    function collapseInstructions(split) {
+    if (!split) return;
+    split.classList.remove("wingman-split-expanded");
+    const instructions = split._wingmanInstructions;
+    if (instructions) instructions.classList.remove("wingman-instructions-open");
+    const input = instructions?.querySelector(".wingman-instructions-input");
+    if (input) input.value = "";
+    }
+
+    function submitWithInstructions(btn, postContainer, actionBar, rawInstructions, split) {
+    const instructions = (rawInstructions || "").trim();
+    collapseInstructions(split);
+    handleWingmanClick(btn, postContainer, actionBar, instructions);
     }
 
     function injectWingmanButtons() {
@@ -387,10 +474,20 @@
             processedButtons.add(commentLikeButton);
         }
 
+        const mode = detectActionBarMode(actionBar);
+
+        const split = document.createElement("span");
+        split.className = "wingman-split";
+        split.dataset.postId = postContainer.id;
+        split.dataset.mode = mode;
+
         const wingmanBtn = document.createElement("button");
         wingmanBtn.className = "wingman-btn";
         wingmanBtn.dataset.postId = postContainer.id;
-        wingmanBtn.innerHTML = `<span class="wingman-btn-icon">${wingmanUiSymbols.WINGMAN_IDLE_SYMBOL}</span> Wingman`;
+        wingmanBtn.dataset.mode = mode;
+        wingmanBtn.setAttribute("aria-label", "Wingman");
+        wingmanBtn.setAttribute("title", "Wingman — generate comments");
+        wingmanBtn.innerHTML = buildMainBtnHtml(mode, buildLogoIconHtml());
         wingmanBtn.style.cssText = "display: inline-flex !important; visibility: visible !important; opacity: 1 !important;";
         wingmanBtn.addEventListener("click", (event) => {
             event.preventDefault();
@@ -398,8 +495,71 @@
             handleWingmanClick(wingmanBtn, postContainer, actionBar);
         });
 
+        const expandBtn = document.createElement("button");
+        expandBtn.className = "wingman-btn-expand";
+        expandBtn.type = "button";
+        expandBtn.title = "Add special instructions";
+        expandBtn.setAttribute("aria-label", "Add special instructions");
+        expandBtn.textContent = "✎";
+        expandBtn.addEventListener("click", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            expandInstructions(split);
+        });
+
+        const instructions = document.createElement("span");
+        instructions.className = "wingman-instructions";
+
+        const input = document.createElement("input");
+        input.type = "text";
+        input.className = "wingman-instructions-input";
+        input.placeholder = "e.g. use technology humor";
+        input.addEventListener("keydown", (event) => {
+            if (event.key === "Enter") {
+                event.preventDefault();
+                submitWithInstructions(wingmanBtn, postContainer, actionBar, input.value, split);
+            } else if (event.key === "Escape") {
+                event.preventDefault();
+                collapseInstructions(split);
+            }
+        });
+
+        const goBtn = document.createElement("button");
+        goBtn.className = "wingman-instructions-go";
+        goBtn.type = "button";
+        goBtn.innerHTML = `${buildLogoIconHtml()} Go`;
+        goBtn.addEventListener("click", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            submitWithInstructions(wingmanBtn, postContainer, actionBar, input.value, split);
+        });
+
+        const cancelBtn = document.createElement("button");
+        cancelBtn.className = "wingman-instructions-cancel";
+        cancelBtn.type = "button";
+        cancelBtn.title = "Cancel";
+        cancelBtn.setAttribute("aria-label", "Cancel special instructions");
+        cancelBtn.textContent = "×";
+        cancelBtn.addEventListener("click", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            collapseInstructions(split);
+        });
+
+        instructions.appendChild(input);
+        instructions.appendChild(goBtn);
+        instructions.appendChild(cancelBtn);
+
+        split.appendChild(wingmanBtn);
+        split.appendChild(expandBtn);
+        split._wingmanInstructions = instructions;
+
         try {
-            actionBar.appendChild(wingmanBtn);
+            actionBar.appendChild(split);
+            if (window.getComputedStyle(actionBar).position === "static") {
+                actionBar.style.position = "relative";
+            }
+            actionBar.appendChild(instructions);
             syncWingmanButtonStates();
         } catch (error) {
             console.error("Wingman: Error appending button:", error);
@@ -421,7 +581,7 @@
     for (const selector of contentSelectors) {
         const element = postContainer.querySelector(selector);
         if (element && element.textContent.trim().length > 10) {
-            return element.innerText || element.textContent;
+            return cleanExtractedPostText(getFullElementText(element));
         }
     }
 
@@ -431,6 +591,22 @@
         ".feed-shared-social-action-bar",
         ".update-v2-social-activity",
         ".comment-social-bar",
+        ".social-details-social-counts",
+        ".social-details-social-activity-counts",
+        ".social-details-social-activity",
+        ".social-details-reactors-facepile",
+        ".feed-shared-social-counts-bar",
+        ".feed-shared-social-action-bar__action-button",
+        ".social-actions-button",
+        '[data-test-id*="social-actions"]',
+        '[data-test-id*="social-counts"]',
+        // video player
+        "video",
+        "[class*='vjs-']",
+        "[class*='video-js']",
+        "[class*='video-player']",
+        "[class*='artdeco-video']",
+        "[class*='media-player']",
         ".wingman-btn",
         ".wingman-results-container",
         "button",
@@ -441,11 +617,36 @@
         clone.querySelectorAll(selector).forEach((element) => element.remove());
     });
 
-    const text = clone.innerText || clone.textContent || "";
-    return text.slice(0, 2000).trim();
+    clone.querySelectorAll('[aria-hidden="true"]').forEach((element) => element.remove());
+
+    const text = getFullElementText(clone);
+    return cleanExtractedPostText(text).slice(0, 4000);
     }
 
-    function handleWingmanClick(btn, postContainer, actionBar) {
+    function getFullElementText(element) {
+        if (!element) return "";
+        return (element.textContent || element.innerText || "").replace(/\u00a0/g, " ");
+    }
+
+    function cleanExtractedPostText(raw) {
+        if (!raw) return "";
+        return raw
+            .replace(/…\s*(see more|more)\b/gi, "")
+            .replace(/\.{3}\s*(see more|more)\b/gi, "")
+            // strip video player UI text that leaks through DOM removal
+            .replace(/Video Player is loading\..*?(Send|$)/si, "")
+            .replace(/Current Time\s+[\d:]+.*?(Send|$)/si, "")
+            // strip trailing social counts: only match when ends with "Send" (LinkedIn share btn)
+            // or when the social row was concatenated (word-digit run, e.g., "reactions2166")
+            .replace(/\s*\d[\d,]*\s*(reaction|comment|repost)s?[^\n]*?Send\s*$/i, "")
+            .replace(/\s*(reactions|comments|reposts)\d[\d,]*[^\n]*$/i, "")
+            .replace(/\n[^\n]*\band \d+ others? reacted[^\n]*$/i, "")
+            .replace(/[ \t]+\n/g, "\n")
+            .replace(/\n{3,}/g, "\n\n")
+            .trim();
+    }
+
+    function handleWingmanClick(btn, postContainer, actionBar, specialInstructions) {
     const nextActivePostId = getNextActivePostId(activeWingmanState.postId, postContainer.id);
     if (!nextActivePostId) {
         clearActiveResults();
@@ -458,10 +659,13 @@
         return;
     }
 
+    const cleanInstructions = (specialInstructions || "").trim();
+
     console.log("Wingman: Starting generation for post", {
         postId: postContainer.id,
         textLength: postText.length,
-        textPreview: postText.slice(0, 180)
+        textPreview: postText.slice(0, 180),
+        hasSpecialInstructions: Boolean(cleanInstructions)
     });
 
     if (shouldBlockGenerationForRuntime(chrome?.runtime)) {
@@ -476,12 +680,13 @@
     setActivePost(postContainer, actionBar, btn);
 
     btn.classList.add("loading");
-    btn.innerHTML = `<span class="wingman-btn-icon">${wingmanUiSymbols.WINGMAN_LOADING_SYMBOL}</span> Wingman`;
+    btn.innerHTML = buildMainBtnHtml(btn.dataset.mode || "inline", buildGlyphIconHtml(wingmanUiSymbols.WINGMAN_LOADING_SYMBOL));
 
     let generationStarted = false;
     const sendResult = runtimeGuards.safeSendRuntimeMessage(chrome.runtime, {
         action: "generate_comments",
         postText,
+        specialInstructions: cleanInstructions,
         targetNodeId: postContainer.id
     }, (response) => {
         if (chrome.runtime.lastError) {
@@ -608,7 +813,7 @@
     function resetWingmanButton() {
     document.querySelectorAll(".wingman-btn.loading").forEach((button) => {
         button.classList.remove("loading");
-        button.innerHTML = `<span class="wingman-btn-icon">${wingmanUiSymbols.WINGMAN_IDLE_SYMBOL}</span> Wingman`;
+        button.innerHTML = buildMainBtnHtml(button.dataset.mode || "inline", buildLogoIconHtml());
     });
     }
 
@@ -790,7 +995,7 @@
     const btn = activeWingmanState.button || postContainer.querySelector(".wingman-btn");
     if (btn) {
         btn.classList.remove("loading");
-        btn.innerHTML = `<span class="wingman-btn-icon">${wingmanUiSymbols.WINGMAN_IDLE_SYMBOL}</span> Wingman`;
+        btn.innerHTML = buildMainBtnHtml(btn.dataset.mode || "inline", buildLogoIconHtml());
     }
 
     if (text.startsWith("Error:")) {
@@ -823,7 +1028,7 @@
     const btn = activeWingmanState.button || postContainer.querySelector(".wingman-btn");
     if (btn) {
         btn.classList.remove("loading");
-        btn.innerHTML = `<span class="wingman-btn-icon">${wingmanUiSymbols.WINGMAN_IDLE_SYMBOL}</span> Wingman`;
+        btn.innerHTML = buildMainBtnHtml(btn.dataset.mode || "inline", buildLogoIconHtml());
     }
 
     const resultsContainer = buildResultsContainer("Wingman error");

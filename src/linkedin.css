@@ -22,6 +22,127 @@
     box-sizing: border-box;
 }
 
+.wingman-split {
+    display: inline-flex;
+    align-items: center;
+    margin-left: 4px;
+    position: relative;
+}
+
+.wingman-split .wingman-btn {
+    margin-left: 0;
+}
+
+.wingman-btn-expand {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    border-radius: 12px;
+    padding: 4px 8px;
+    margin-left: -2px;
+    color: var(--wm-text-secondary);
+    font-size: 13px;
+    font-weight: 600;
+    font-family: inherit;
+    transition: var(--wm-transition);
+    opacity: 0.7;
+}
+
+.wingman-btn-expand:hover {
+    opacity: 1;
+    background-color: var(--wm-blue-light);
+    color: var(--wm-blue);
+}
+
+.wingman-instructions {
+    display: none;
+    align-items: center;
+    gap: 6px;
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    right: 0;
+    z-index: 10;
+    padding: 6px;
+    background: var(--wm-bg);
+    border: 1px solid var(--wm-border);
+    border-radius: 12px;
+    box-shadow: var(--wm-shadow-sm);
+}
+
+.wingman-split-expanded .wingman-btn {
+    background: var(--wm-blue-light);
+    color: var(--wm-blue);
+}
+
+.wingman-instructions.wingman-instructions-open {
+    display: inline-flex;
+}
+
+.wingman-instructions .wingman-instructions-input {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.wingman-instructions-input {
+    font: inherit;
+    font-size: 13px;
+    padding: 5px 10px;
+    border: 1px solid var(--wm-border);
+    background: var(--wm-bg);
+    color: var(--wm-text);
+    border-radius: 10px;
+    outline: none;
+    min-width: 200px;
+    transition: var(--wm-transition);
+}
+
+.wingman-instructions-input:focus {
+    border-color: var(--wm-blue);
+    box-shadow: 0 0 0 2px var(--wm-blue-light);
+}
+
+.wingman-instructions-go,
+.wingman-instructions-cancel {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    border-radius: 10px;
+    padding: 5px 10px;
+    color: var(--wm-text-secondary);
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    transition: var(--wm-transition);
+}
+
+.wingman-instructions-go {
+    background: var(--wm-blue-light);
+    color: var(--wm-blue);
+}
+
+.wingman-instructions-go:hover {
+    background: var(--wm-blue);
+    color: #fff;
+}
+
+.wingman-instructions-cancel {
+    font-size: 16px;
+    padding: 4px 8px;
+}
+
+.wingman-instructions-cancel:hover {
+    background-color: rgba(127, 127, 127, 0.12);
+    color: var(--wm-text);
+}
+
 .wingman-btn {
     display: inline-flex;
     align-items: center;
@@ -68,6 +189,51 @@
 .wingman-btn-icon {
     font-size: 18px;
     filter: drop-shadow(0 0 2px rgba(10, 102, 194, 0.2));
+}
+
+img.wingman-btn-icon.wingman-btn-logo {
+    width: 20px;
+    height: 20px;
+    display: inline-block;
+    vertical-align: middle;
+    object-fit: contain;
+    filter: none;
+    user-select: none;
+}
+
+/* Responsive modes — match the sibling action bar presentation */
+
+/* Stacked: icon on top, label below (LinkedIn's narrow feed layout) */
+.wingman-btn[data-mode="stacked"] {
+    flex-direction: column;
+    gap: 4px;
+    padding: 6px 10px;
+    border-radius: 10px;
+}
+
+.wingman-btn[data-mode="stacked"] img.wingman-btn-logo {
+    width: 22px;
+    height: 22px;
+}
+
+.wingman-btn[data-mode="stacked"] .wingman-btn-label {
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1;
+}
+
+/* Inline: icon next to label horizontally */
+.wingman-btn[data-mode="inline"] {
+    flex-direction: row;
+}
+
+/* Icon-only: just the logo, no label */
+.wingman-btn[data-mode="icon-only"] {
+    padding: 6px 8px;
+}
+
+.wingman-btn-label {
+    font: inherit;
 }
 
 .wingman-btn.loading {

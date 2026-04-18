@@ -366,7 +366,17 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'generate_comments') {
     console.log("Wingman BG: Received generate_comments request");
     
-    const fullPrompt = PROMPT_INSTRUCTIONS + "\n" + request.postText;
+    const specialInstructions = (request.specialInstructions || "").trim();
+    const specialInstructionsBlock = specialInstructions
+      ? `\n# User preference for this generation\n${specialInstructions}\n\n`
+      : "";
+    // Inject the special instructions block before the "---" separator so the model
+    // treats it as a system-level instruction rather than trailing data.
+    const promptWithInstructions = PROMPT_INSTRUCTIONS.replace(
+      "\n---\nHERE IS THE LINKEDIN POST:\n",
+      `\n${specialInstructionsBlock}---\nHERE IS THE LINKEDIN POST:\n`
+    );
+    const fullPrompt = promptWithInstructions + "\n" + request.postText;
 
     chrome.windows.create(getChatGptPopupOptions(), async (createdWindow) => {
       if (chrome.runtime.lastError) {
