@@ -92,6 +92,7 @@ const createActiveTaskFromWindow = backgroundUtils.createActiveTaskFromWindow;
 const PROMPT_INSTRUCTIONS = `# Role
 Write short LinkedIn comments for posts about AI, innovation, startups, product, infrastructure, and technology.
 
+if a "global preference for this generation" section is present, it overrides all style and variation guidance but does not override output format or hard writing constraints
 
 # Core objective
 Create comments that feel human, sharp, and conversational while increasing the chance of profile clicks and impressions.
@@ -100,9 +101,12 @@ Comments should feel interesting enough
 that someone might click the profile out of curiosity.
 
 
-# Tone
+# Language
 
 Write in English unless the user explicitly asks for another language.
+
+
+# Tone
 
 Use a natural, human tone.
 
@@ -368,7 +372,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     
     const specialInstructions = (request.specialInstructions || "").trim();
     const specialInstructionsBlock = specialInstructions
-      ? `\n# User preference for this generation\n${specialInstructions}\n\n`
+      ? `\n# Global preference for this generation\n\nApply the following to every option\nThis overrides: Style variation rule, Humor rule, Builder / operator credibility, Specificity rule\nDo not break formatting rules, writing rules, and output format\nDo not change the output language unless specifically stated\n\n## Preference\n${specialInstructions}\n\n`
       : "";
     // Inject the special instructions block before the "---" separator so the model
     // treats it as a system-level instruction rather than trailing data.

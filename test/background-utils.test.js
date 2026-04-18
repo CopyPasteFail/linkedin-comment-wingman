@@ -72,6 +72,18 @@ test("background service worker fallback does not depend on method binding for p
     assert.doesNotMatch(backgroundSource, /this\.DEFAULT_POPUP_MARGIN/);
 });
 
+test("background service worker formats special instructions as a global preference block", () => {
+    const backgroundSource = fs.readFileSync(path.join(__dirname, "..", "src", "background.js"), "utf8");
+
+    assert.match(backgroundSource, /# Global preference for this generation/);
+    assert.match(backgroundSource, /Apply the following to every option/);
+    assert.match(
+        backgroundSource,
+        /## Preference\\n\$\{specialInstructions\}\\n\\n/
+    );
+    assert.doesNotMatch(backgroundSource, /# User preference for this generation/);
+});
+
 test("createActiveTaskFromWindow returns null when Chrome does not provide a usable popup tab", () => {
     const task = createActiveTaskFromWindow(null, "prompt", 42, "wingman-post-1");
     assert.equal(task, null);
