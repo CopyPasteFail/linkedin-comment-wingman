@@ -142,7 +142,16 @@
     return Math.max(0, postRect.bottom - nodeRect.bottom);
     }
 
+    const COMMENT_SUBTREE_SELECTOR_LOCAL = ".comments-comments-list,.comments-comment-entity,.comments-comment-list__container,.comment-social-activity,.comments-thread-entity,.comments-thread-item,.feed-shared-update-v2__comments-container";
+
+    function isCandidateInsideCommentSubtree(candidate) {
+        return Boolean(candidate?.closest?.(COMMENT_SUBTREE_SELECTOR_LOCAL));
+    }
+
     function scoreFooterCandidate(candidate, postContainer) {
+    if (isCandidateInsideCommentSubtree(candidate)) {
+        return { candidate, score: Number.NEGATIVE_INFINITY, controlCount: 0, tokens: ["comments"], distanceFromBottom: Number.POSITIVE_INFINITY };
+    }
     const controls = getInteractiveControls(candidate);
     const controlLabels = controls.map(getControlLabel);
     const controlCount = controlLabels.length;

@@ -11,6 +11,20 @@ const POST_CONTAINER_SELECTORS = [
 
 const INTERACTIVE_CONTROL_SELECTOR = "button, [role='button'], a";
 const POST_MENU_SELECTOR = '[aria-label*="Open control menu for post by" i]';
+const COMMENT_SUBTREE_SELECTOR = [
+    ".comments-comments-list",
+    ".comments-comment-entity",
+    ".comments-comment-list__container",
+    ".comment-social-activity",
+    ".comments-thread-entity",
+    ".comments-thread-item",
+    ".feed-shared-update-v2__comments-container"
+].join(",");
+
+function isInsideCommentSubtree(node) {
+    if (!node || typeof node.closest !== "function") return false;
+    return Boolean(node.closest(COMMENT_SUBTREE_SELECTOR));
+}
 
 function matchesPostSelector(node) {
     return Boolean(node?.matches) &&
@@ -117,14 +131,16 @@ function collectLikelyPostRoots(documentLike) {
     getInteractiveControls(documentLike)
         .filter(looksLikeReactionControl)
         .forEach((anchor) => {
+            if (isInsideCommentSubtree(anchor)) return;
             const root = findPostRootFromReactionAnchor(anchor, bodyNode);
-            if (root) {
+            if (root && !isInsideCommentSubtree(root)) {
                 roots.add(root);
             }
         });
 
     Array.from(documentLike?.querySelectorAll?.("article, div, section, main, li") || [])
         .forEach((node) => {
+            if (isInsideCommentSubtree(node)) return;
             if (matchesPostSelector(node) || scoreStructuralPostRoot(node) >= 8) {
                 roots.add(node);
             }
