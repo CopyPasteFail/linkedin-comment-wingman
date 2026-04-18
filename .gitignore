@@ -45,5 +45,5 @@ Desktop.ini
 coverage/
 .nyc_output/
 
-# Local Claude Code settings
-.claude/settings.local.json
+# Local Claude Code
+.claude/
